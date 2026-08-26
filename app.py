@@ -17,19 +17,16 @@ st.set_page_config(
 if "history" not in st.session_state:
   st.session_state.history = []
 
-# Global Dark CSS Styling (Sidebar, UI Contrast, and Native Chart Dark Theme Overrides)
+# Global Dark CSS Styling
 st.markdown(
     """
     <style>
-    /* Dark Theme Backgrounds & Default Colors */
     .stApp, div[data-testid="stAppViewContainer"] { 
         background-color: #0d1117 !important; 
     }
     label, p, span, h1, h2, h3, h4, h5, h6, li { 
         color: #f0f6fc !important; 
     }
-
-    /* Sidebar High Contrast Styling */
     section[data-testid="stSidebar"] {
         background-color: #161b22 !important;
         border-right: 1px solid #30363d !important;
@@ -37,22 +34,6 @@ st.markdown(
     section[data-testid="stSidebar"] * {
         color: #f0f6fc !important;
     }
-    section[data-testid="stSidebar"] .stMarkdown p {
-        font-size: 1.0rem !important;
-        line-height: 1.4 !important;
-    }
-
-    /* Force high contrast text inside all markdown elements */
-    div[data-testid="stMarkdownContainer"] p, 
-    div[data-testid="stMarkdownContainer"] li,
-    div[data-testid="stMarkdownContainer"] span,
-    div[data-testid="stMarkdownContainer"] strong {
-        color: #e6edf3 !important;
-        font-size: 1.05rem !important;
-        line-height: 1.6 !important;
-    }
-
-    /* Run Button Styling */
     div.stButton > button {
         background-color: #238636 !important;
         color: #ffffff !important;
@@ -63,8 +44,6 @@ st.markdown(
         border-radius: 8px !important;
         box-shadow: 0px 4px 12px rgba(35, 134, 54, 0.4) !important;
     }
-
-    /* Metric Box Containers */
     div[data-testid="stMetric"] {
         background-color: #161b22 !important;
         border: 2px solid #30363d !important;
@@ -82,13 +61,6 @@ st.markdown(
         font-size: 2.6rem !important;
         font-weight: 900 !important;
     }
-    div[data-testid="stMetricDelta"] {
-        color: #7ee787 !important;
-        font-size: 1.0rem !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Box Score Custom Classes */
     .stat-header {
         color: #58a6ff !important;
         border-bottom: 2px solid #30363d;
@@ -109,7 +81,6 @@ st.markdown(
         font-size: 1.2rem !important;
         font-weight: 800 !important;
     }
-
     .card-title {
         color: #58a6ff !important;
         font-size: 1.3rem !important;
@@ -117,8 +88,6 @@ st.markdown(
         margin-top: 15px !important;
         margin-bottom: 8px !important;
     }
-
-    /* Streamlit native chart dark background blend fixes */
     div[data-testid="stVegaLiteChart"] {
         background-color: #161b22 !important;
         border: 1px solid #30363d !important;
@@ -130,41 +99,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Calibrated Real-Scale SP+ Ratings Database (2026 Projections)
-TIER_RATINGS = {
-    "Oregon": 41.5,
-    "Ohio State": 41.0,
-    "Notre Dame": 40.2,
-    "Georgia": 39.0,
-    "Texas": 37.5,
-    "Alabama": 36.0,
-    "Texas Tech": 34.2,
-    "Ole Miss": 33.5,
-    "Penn State": 32.5,
-    "Michigan": 31.0,
-    "LSU": 30.2,
-    "Clemson": 29.8,
-    "Tennessee": 28.5,
-    "Missouri": 27.2,
-    "Oklahoma": 26.0,
-    "Utah": 24.8,
-    "Boise State": 23.8,
-    "Iowa State": 23.0,
-    "Kansas State": 22.2,
-    "Louisville": 21.5,
-    "Auburn": 20.8,
-    "Texas A&M": 20.0,
-    "Miami": 19.2,
-    "Wisconsin": 18.5,
-    "Iowa": 17.8,
-    "USC": 17.0,
-    "Florida": 16.2,
-    "SMU": 15.5,
-    "Kentucky": 14.8,
-    "Purdue": 12.0,
-}
-
-# FBS Teams Database
+# FBS Teams Database (Georgia Tech added)
 CFB_TEAMS = sorted([
     "Alabama",
     "Arizona",
@@ -181,6 +116,7 @@ CFB_TEAMS = sorted([
     "Florida",
     "Florida State",
     "Georgia",
+    "Georgia Tech",
     "Houston",
     "Illinois",
     "Indiana",
@@ -235,36 +171,46 @@ CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 API_KEY = st.secrets["CFBD_API_KEY"]
 
 
-# Cached API Fetch Function for SP+ ratings
+# Cached API Fetch Function for ALL SP+ Ratings (Powers dynamic sidebar & matchups)
 @st.cache_data(ttl=259200)
-def fetch_advanced_profile(team_name):
-  url_sp = (
-      f"https://api.collegefootballdata.com/ratings/sp?year=2026&team={team_name}"
-  )
+def fetch_all_sp_ratings():
+  url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
   headers = {"Authorization": f"Bearer {API_KEY}"}
-  res_sp = requests.get(url_sp, headers=headers)
+  res = requests.get(url, headers=headers)
 
-  sp_val = None
-  if res_sp.status_code == 200 and len(res_sp.json()) > 0:
-    sp_val = float(res_sp.json()[0].get("rating", 0.0))
+  ratings_dict = {}
+  if res.status_code == 200:
+    data = res.json()
+    for item in data:
+      team_name = item.get("team")
+      rating_val = item.get("rating")
+      if team_name and rating_val is not None:
+        ratings_dict[team_name] = float(rating_val)
 
-  if sp_val is None or sp_val == 0.0:
-    sp_val = TIER_RATINGS.get(team_name, 15.0)
+  return ratings_dict
 
+
+def fetch_advanced_profile(team_name):
+  all_ratings = fetch_all_sp_ratings()
+  sp_val = all_ratings.get(team_name, 15.0)
   return {"sp": sp_val}
 
 
-# SIDEBAR: TOP 25 MODEL RANKINGS
+# SIDEBAR: DYNAMIC TOP 25 MODEL RANKINGS
 with st.sidebar:
   st.markdown("## 🏆 Model Top 25 Rankings")
-  st.caption("Updated dynamically via analytical metrics")
+  st.caption("Updated dynamically via live SP+ metrics")
 
-  sorted_ratings = sorted(
-      TIER_RATINGS.items(), key=lambda x: x[1], reverse=True
-  )[:25]
+  all_ratings = fetch_all_sp_ratings()
 
-  for rank, (team, rating) in enumerate(sorted_ratings, start=1):
-    st.markdown(f"**#{rank}** {team}")
+  if all_ratings:
+    sorted_ratings = sorted(
+        all_ratings.items(), key=lambda x: x[1], reverse=True
+    )[:25]
+    for rank, (team, rating) in enumerate(sorted_ratings, start=1):
+      st.markdown(f"**#{rank}** {team} *({rating:.1f})*")
+  else:
+    st.warning("Could not load live rankings from API.")
 
 # Authentication Flow
 if "authenticated" not in st.session_state:
@@ -279,7 +225,6 @@ if not st.session_state["authenticated"]:
   elif pwd != "":
     st.error("Incorrect Password")
 else:
-  # CLEAN APP HEADER LAYOUT WITHOUT QUOTA WIDGET
   st.title("🏈 2026 College Football Game Predictor")
 
   col1, col2, col3 = st.columns([2, 2, 1])
@@ -295,7 +240,6 @@ else:
     st.write("")
     is_neutral = st.checkbox("Neutral Field Game", value=False)
 
-  # PREVENT SAME TEAM MATCHUP SELECTION
   same_team_selected = team_a == team_b
 
   if same_team_selected:
@@ -320,7 +264,6 @@ else:
       max_cap = 17.0
       base_spread = max_cap * float(np.tanh(raw_diff / 18.0))
 
-      # MONTE CARLO SIMULATION ARRAY GENERATION
       NUM_SIMS = 10000
       simulated_margins = np.random.normal(
           loc=base_spread, scale=12.5, size=NUM_SIMS
@@ -359,7 +302,6 @@ else:
       underdog_team = team_b if mean_margin >= 0 else team_a
       favored_win_pct = max(win_prob_a, win_prob_b) * 100
 
-      # Save current simulation run to history log
       history_entry = {
           "Matchup": f"{team_a} vs {team_b}",
           "Projected Margin": f"{abs(mean_margin):.1f} pts ({favored_team})",
@@ -370,7 +312,6 @@ else:
       if len(st.session_state.history) > 4:
         st.session_state.history.pop()
 
-      # FULLY DYNAMIC SIMULATION-DRIVEN KEYS TO THE GAME POOL
       potential_keys = [
           (
               "**Rushing Efficiency Benchmark:** In roughly"
@@ -411,7 +352,6 @@ else:
       ]
       selected_keys = random.sample(potential_keys, 3)
 
-      # EXPANDED, DIVERSE POOLS FOR BLUEPRINT STRATEGIES & AVOIDS
       actions_pool_a = [
           (
               "Establish early tempo on standard-down runs to stay ahead of the"
@@ -506,7 +446,6 @@ else:
       chosen_action_b = random.choice(actions_pool_b)
       chosen_avoid_b = random.choice(avoids_pool_b)
 
-      # DYNAMIC STATISTICAL EVIDENCE FOR BLUEPRINTS
       win_pct_a_val = round(win_prob_a * 100, 1)
       win_pct_b_val = round(win_prob_b * 100, 1)
 
@@ -522,7 +461,6 @@ else:
       to_limit_a = random.randint(70, 93)
       to_limit_b = random.randint(70, 93)
 
-      # TOP METRICS DISPLAY
       st.divider()
       st.subheader("📊 Monte Carlo Simulation Results (10,000 Runs)")
 
@@ -553,7 +491,6 @@ else:
           ),
       )
 
-      # VISUAL MARGIN DISTRIBUTION CURVE CHART
       st.divider()
       st.subheader("📈 Projected Point Margin Distribution")
       st.caption(
@@ -576,7 +513,6 @@ else:
           use_container_width=True,
       )
 
-      # KEY FACTORS DISPLAY
       st.divider()
       st.subheader("🎲 Monte Carlo Key Factors & Simulation Drivers")
 
@@ -609,7 +545,6 @@ else:
           f" **{blowouts_b:.1f}%** likelihood of a decisive victory margin."
       )
 
-      # DYNAMIC TEAM STRATEGY BLUEPRINT SECTION WITH GRANULAR EVIDENCE
       st.markdown(
           '<div class="card-title">📋 Simulation-Driven Game Plan & Strategy'
           " Blueprint</div>",
@@ -656,9 +591,9 @@ else:
             " rate)."
         )
 
-      # BOX SCORE DISPLAY
       st.divider()
       st.subheader("🏈 Simulated Average Game Box Score")
+
 
       def calculate_scoring_breakdown(score):
         tds = int(score // 7)
@@ -675,6 +610,7 @@ else:
         pass_tds = max(0, min(tds, int(round(tds * 0.55))))
         rush_tds = tds - pass_tds
         return pass_tds, rush_tds, fgs
+
 
       pass_tds_a, rush_tds_a, fgs_a = calculate_scoring_breakdown(mean_score_a)
       pass_tds_b, rush_tds_b, fgs_b = calculate_scoring_breakdown(mean_score_b)
@@ -776,7 +712,6 @@ else:
             unsafe_allow_html=True,
         )
 
-  # RECENT SIMULATION HISTORY LOG DISPLAY
   st.divider()
   st.subheader("🕒 Recent Simulation History")
   if st.session_state.history:
