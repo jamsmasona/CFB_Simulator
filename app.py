@@ -705,7 +705,7 @@ else:
         )
         st.markdown(
             f"<div class='stat-line'>Rushing Touchdowns: <span"
-            f" class='stat-val'>{rush_yds_b}</span></div>",
+            f" class='stat-val'>{rush_tds_b}</span></div>",
             unsafe_allow_html=True,
         )
         st.markdown(
