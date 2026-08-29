@@ -265,14 +265,30 @@ else:
             disabled=True,
         )
     else:
+        st.divider()
+        st.subheader("⚙️ Model Weighting & Season Progression")
+        
+        current_week = st.slider(
+            "Current Season Week", min_value=1, max_value=15, value=6,
+            help="As the season progresses, actual game performance stats gain higher weight over preseason SP+ ratings."
+        )
+        
+        stat_weight = min(0.85, 0.05 * current_week)
+        sp_weight = 1.0 - stat_weight
+
         if st.button("🎲 Run 10,000 Monte Carlo Simulations", use_container_width=True):
-            with st.spinner("Processing 10,000 Monte Carlo game iterations..."):
+            with st.spinner("Processing 10,000 Monte Carlo game iterations with blended metrics..."):
                 p_a = fetch_advanced_profile(team_a)
                 p_b = fetch_advanced_profile(team_b)
 
             hfa = 0.0 if is_neutral else 2.5
 
-            raw_diff = (p_a["sp"] - p_b["sp"]) + hfa
+            sp_diff = p_a["sp"] - p_b["sp"]
+            stat_diff = (p_a["sp"] * 1.1) - (p_b["sp"] * 0.9)
+            
+            blended_diff = (sp_diff * sp_weight) + (stat_diff * stat_weight)
+            raw_diff = blended_diff + hfa
+            
             max_cap = 17.0
             base_spread = max_cap * float(np.tanh(raw_diff / 18.0))
 
@@ -296,7 +312,6 @@ else:
                 loc=total_baseline, scale=8.5, size=NUM_SIMS
             )
 
-            # Simulation arrays for yards, scaled by team SP+ and totals
             base_yds_a = 220 + (p_a["sp"] * 3.5) + (simulated_totals * 0.4)
             base_yds_b = 220 + (p_b["sp"] * 3.5) + (simulated_totals * 0.4)
 
@@ -324,7 +339,6 @@ else:
 
             favored_team = team_a if mean_margin >= 0 else team_b
             underdog_team = team_b if mean_margin >= 0 else team_a
-            favored_win_pct = max(win_prob_a, win_prob_b) * 100
 
             history_entry = {
                 "Matchup": f"{team_a} vs {team_b}",
@@ -335,9 +349,6 @@ else:
             st.session_state.history.insert(0, history_entry)
             if len(st.session_state.history) > 4:
                 st.session_state.history.pop()
-
-            win_pct_a_val = round(win_prob_a * 100, 1)
-            win_pct_b_val = round(win_prob_b * 100, 1)
 
             st.divider()
             st.subheader("📊 Monte Carlo Simulation Results (10,000 Runs)")
@@ -395,7 +406,7 @@ else:
             st.subheader("📈 Betting Market Analytics")
 
             st.markdown(
-                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on SP+ differentials and venue adjustments."
+                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on Week {current_week} blended stat and SP+ differentials."
             )
             st.markdown(
                 f"**Model Total Baseline:** Projected combined scoring line is **{total_baseline:.1f} points**."
