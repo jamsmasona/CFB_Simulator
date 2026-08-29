@@ -288,6 +288,18 @@ else:
           loc=total_baseline, scale=8.5, size=NUM_SIMS
       )
 
+      # Simulation arrays for yards, scaled by team SP+ and totals
+      base_yds_a = 220 + (p_a["sp"] * 3.5) + (simulated_totals * 0.4)
+      base_yds_b = 220 + (p_b["sp"] * 3.5) + (simulated_totals * 0.4)
+
+      sim_total_yds_a = np.random.normal(loc=base_yds_a, scale=35.0, size=NUM_SIMS)
+      sim_total_yds_b = np.random.normal(loc=base_yds_b, scale=35.0, size=NUM_SIMS)
+
+      sim_pass_yds_a = sim_total_yds_a * 0.58
+      sim_rush_yds_a = sim_total_yds_a * 0.42
+      sim_pass_yds_b = sim_total_yds_b * 0.58
+      sim_rush_yds_b = sim_total_yds_b * 0.42
+
       sim_scores_a = np.maximum(
           3, np.round((simulated_totals / 2) + (simulated_margins / 2))
       )
@@ -619,16 +631,14 @@ else:
       pass_tds_a, rush_tds_a, fgs_a = calculate_scoring_breakdown(mean_score_a)
       pass_tds_b, rush_tds_b, fgs_b = calculate_scoring_breakdown(mean_score_b)
 
-      base_yards_a = mean_score_a * 11.2 + 80
-      base_yards_b = mean_score_b * 11.2 + 80
+      total_yds_a = int(np.mean(sim_total_yds_a))
+      total_yds_b = int(np.mean(sim_total_yds_b))
 
-      pass_yds_a = round(base_yards_a * 0.58)
-      rush_yds_a = round(base_yards_a * 0.42)
-      total_yds_a = pass_yds_a + rush_yds_a
+      pass_yds_a = int(np.mean(sim_pass_yds_a))
+      rush_yds_a = int(np.mean(sim_rush_yds_a))
 
-      pass_yds_b = round(base_yards_b * 0.58)
-      rush_yds_b = round(base_yards_b * 0.42)
-      total_yds_b = pass_yds_b + rush_yds_b
+      pass_yds_b = int(np.mean(sim_pass_yds_b))
+      rush_yds_b = int(np.mean(sim_rush_yds_b))
 
       first_downs_a = round(total_yds_a / 18.0)
       first_downs_b = round(total_yds_b / 18.0)
