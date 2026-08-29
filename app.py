@@ -113,6 +113,7 @@ CFB_TEAMS = sorted([
     "Clemson",
     "Colorado",
     "Duke",
+    "East Carolina",
     "Florida",
     "Florida State",
     "Georgia",
