@@ -1,5 +1,4 @@
 from datetime import datetime
-import random
 import numpy as np
 import pandas as pd
 import requests
@@ -99,7 +98,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# FBS Teams Database (Georgia Tech added)
+# FBS Teams Database
 CFB_TEAMS = sorted([
     "Alabama",
     "Arizona",
@@ -175,7 +174,7 @@ CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 API_KEY = st.secrets["CFBD_API_KEY"]
 
 
-# Cached API Fetch Function for ALL SP+ Ratings (Powers dynamic sidebar & matchups)
+# Cached API Fetch Function for ALL SP+ Ratings
 @st.cache_data(ttl=86400)
 def fetch_all_sp_ratings():
     url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
@@ -337,154 +336,8 @@ else:
             if len(st.session_state.history) > 4:
                 st.session_state.history.pop()
 
-            potential_keys = [
-                (
-                    "**Rushing Efficiency Benchmark:** In roughly"
-                    f" **{random.randint(52, 74)}%** of winning simulations,"
-                    f" {favored_team} maintained an average of over"
-                    f" **{random.uniform(4.1, 4.9):.1f}** yards per carry to control"
-                    " game pacing."
-                ),
-                (
-                    "**First-Half Defensive Clamp:** Across"
-                    f" **{random.randint(55, 81)}%** of successful outcomes, the"
-                    f" defense restricted opponents to under"
-                    f" **{random.randint(95, 125)}** total yards through the first"
-                    " two quarters."
-                ),
-                (
-                    "**Explosive Play Differential:** In simulations where margins"
-                    " widened past two possessions, explosive gains of 20+ yards"
-                    f" favored the victor by an average of **{random.randint(4, 8)}"
-                    f" to {random.randint(1, 3)}**."
-                ),
-                (
-                    "**Third-Down Conversion Threshold:** Converting at least"
-                    f" **{random.randint(41, 56)}%** of third-down attempts served"
-                    " as a strict baseline requirement across winning iterations."
-                ),
-                (
-                    "**Red-Zone Conversion Rate:** Capitalizing on scoring"
-                    " opportunities inside the 20-yard line with touchdowns instead"
-                    f" of field goals occurred in **{random.randint(62, 85)}%** of"
-                    " winning scripts."
-                ),
-                (
-                    "**Turnover Margin Control:** Avoiding multi-turnover sequences"
-                    " allowed the victors to secure clean game scripts in"
-                    f" **{random.randint(68, 92)}%** of simulated runs."
-                ),
-            ]
-            selected_keys = random.sample(potential_keys, 3)
-
-            actions_pool_a = [
-                (
-                    "Establish early tempo on standard-down runs to stay ahead of the"
-                    " chains and force defensive commitment."
-                ),
-                (
-                    "Utilize quick-game perimeter passing routes to neutralize"
-                    " high-pressure blitz packages."
-                ),
-                (
-                    "Target intermediate seam routes to exploit zone coverage"
-                    " spacing in the middle third."
-                ),
-                (
-                    "Deploy heavy personnel packages on early downs to establish"
-                    " physical dominance at the line of scrimmage."
-                ),
-                (
-                    "Leverage motion and misdirection out of the backfield to stress"
-                    " linebacker eye discipline."
-                ),
-            ]
-            avoids_pool_a = [
-                (
-                    "Avoid long-yardage passing situations on 2nd and long that invite"
-                    " disruptive stunts."
-                ),
-                (
-                    "Avoid stalling out inside the red zone and settling for field"
-                    " goals."
-                ),
-                (
-                    "Avoid giving up explosive momentum-shifting plays on early"
-                    " downs."
-                ),
-                (
-                    "Avoid pre-snap alignment penalties that disrupt offensive rhythm"
-                    " and kill drive momentum."
-                ),
-                (
-                    "Avoid holding onto the ball too long against perimeter edge"
-                    " rushers."
-                ),
-            ]
-
-            actions_pool_b = [
-                (
-                    "Disrupt timing patterns with aggressive underneath coverage and"
-                    " physical press alignment."
-                ),
-                (
-                    "Sustain multi-first-down drives to keep opposing high-powered"
-                    " offenses resting on the sideline."
-                ),
-                (
-                    "Capitalize aggressively on short-field opportunities created by"
-                    " special teams."
-                ),
-                (
-                    "Establish a balanced run-pass mix early to dictate game pace"
-                    " and quiet the crowd."
-                ),
-                (
-                    "Implement calculated safety blitzes to collapse the pocket from"
-                    " unexpected interior angles."
-                ),
-            ]
-            avoids_pool_b = [
-                (
-                    "Avoid blown assignments in deep coverage that yield quick"
-                    " explosive gains."
-                ),
-                (
-                    "Avoid unforced turnovers in territory past the 50-yard line."
-                ),
-                (
-                    "Avoid getting worn down late in the game by sustainable rushing"
-                    " attacks."
-                ),
-                (
-                    "Avoid giving up cheap yards via pass interference or defensive"
-                    " holding penalties."
-                ),
-                (
-                    "Avoid letting slot receivers get clean releases off the line"
-                    " of scrimmage."
-                ),
-            ]
-
-            chosen_action_a = random.choice(actions_pool_a)
-            chosen_avoid_a = random.choice(avoids_pool_a)
-            chosen_action_b = random.choice(actions_pool_b)
-            chosen_avoid_b = random.choice(avoids_pool_b)
-
             win_pct_a_val = round(win_prob_a * 100, 1)
             win_pct_b_val = round(win_prob_b * 100, 1)
-
-            rush_share_a = random.randint(48, 64)
-            rush_share_b = random.randint(48, 64)
-
-            rz_td_rate_a = random.randint(64, 85)
-            rz_td_rate_b = random.randint(64, 85)
-
-            third_conv_a = random.randint(40, 54)
-            third_conv_b = random.randint(40, 54)
-
-            to_limit_a = random.randint(70, 93)
-            to_limit_b = random.randint(70, 93)
 
             st.divider()
             st.subheader("📊 Monte Carlo Simulation Results (10,000 Runs)")
@@ -539,82 +392,18 @@ else:
             )
 
             st.divider()
-            st.subheader("🎲 Monte Carlo Key Factors & Simulation Drivers")
+            st.subheader("📈 Betting Market Analytics")
 
             st.markdown(
-                f"This simulation outcome is driven by a model projected margin of"
-                f" **{abs(mean_margin):.1f} points**, with a"
-                f" **{one_possession:.1f}% probability** of ending as a 1-possession"
-                " finish."
-            )
-
-            st.markdown(
-                '<div class="card-title">🔑 Keys to the Game:</div>',
-                unsafe_allow_html=True,
+                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on SP+ differentials and venue adjustments."
             )
             st.markdown(
-                f"* {selected_keys[0]}\n* {selected_keys[1]}\n* {selected_keys[2]}"
-            )
-
-            st.markdown(
-                '<div class="card-title">📊 Simulation Outliers & Risk'
-                " Distribution:</div>",
-                unsafe_allow_html=True,
+                f"**Model Total Baseline:** Projected combined scoring line is **{total_baseline:.1f} points**."
             )
             st.markdown(
-                f"* **1-Possession Finish Probability (≤ 8 Pts):**"
-                f" **{one_possession:.1f}%** of total simulations finished within one"
-                f" score.\n* **{team_a} Double-Digit Win Rate:**"
-                f" **{blowouts_a:.1f}%** likelihood of a decisive victory"
-                f" margin.\n* **{team_b} Double-Digit Win Rate:**"
-                f" **{blowouts_b:.1f}%** likelihood of a decisive victory margin."
+                f"**Game Script Distribution:** One-possession game probability (≤ 8 pts) is **{one_possession:.1f}%**. "
+                f"Decisive margin probability (14+ pts) is **{blowouts_a:.1f}%** for `{team_a}` and **{blowouts_b:.1f}%** for `{team_b}`."
             )
-
-            st.markdown(
-                '<div class="card-title">📋 Simulation-Driven Game Plan & Strategy'
-                " Blueprint</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                "Derived directly from the quantitative metrics and iteration paths"
-                " of the 10,000 simulations executed above:"
-            )
-
-            strat_col1, strat_col2 = st.columns(2)
-            with strat_col1:
-                st.markdown(
-                    f"<div class='stat-header'>🏠 {team_a} Blueprint</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"**What to Do:**\n* {chosen_action_a} (Observed in"
-                    f" **{win_pct_a_val}%** of winning simulations, featuring a"
-                    f" third-down conversion clip of **{third_conv_a}%** and a red-zone"
-                    f" TD rate of **{rz_td_rate_a}%**)."
-                )
-                st.markdown(
-                    f"**What to Avoid:**\n* {chosen_avoid_a} (Noted in"
-                    f" **{100 - win_pct_a_val:.1f}%** of simulation losses where"
-                    f" drives stalled past the 40-yard line on over"
-                    f" **{100 - to_limit_a}%** of possessions)."
-                )
-
-            with strat_col2:
-                st.markdown(
-                    f"<div class='stat-header'>✈️ {team_b} Blueprint</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"**What to Do:**\n* {chosen_action_b} (Validated across"
-                    f" **{win_pct_b_val}%** of winning iterations, maintaining control"
-                    f" across **{rush_share_b}%** of total offensive snaps)."
-                )
-                st.markdown(
-                    f"**What to Avoid:**\n* {chosen_avoid_b} (Highlighted in"
-                    f" **{100 - win_pct_b_val:.1f}%** of defeats where opponents"
-                    f" sustained drives above a **{third_conv_b}%** third-down success"
-                    " rate)."
-                )
 
             st.divider()
             st.subheader("🏈 Simulated Average Game Box Score")
@@ -655,7 +444,7 @@ else:
             box_col1, box_col2 = st.columns(2)
             with box_col1:
                 st.markdown(
-                    f"<div class='stat-header'>{team_a} (Home)</div>",
+                    f"<div class='stat-header'>{team_a} (Home) - SP+: {p_a['sp']:.1f}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
@@ -696,7 +485,7 @@ else:
 
             with box_col2:
                 st.markdown(
-                    f"<div class='stat-header'>{team_b} (Away)</div>",
+                    f"<div class='stat-header'>{team_b} (Away) - SP+: {p_b['sp']:.1f}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
