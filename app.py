@@ -147,6 +147,7 @@ CFB_TEAMS = sorted([
     "Pittsburgh",
     "Purdue",
     "Rutgers",
+    "San Jose State",
     "SMU",
     "South Carolina",
     "Stanford",
