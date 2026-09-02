@@ -15,19 +15,41 @@ st.set_page_config(
 
 if "history" not in st.session_state:
     st.session_state.history = []
+
+# Ensure API Key is handled safely (via Streamlit Secrets or fallback input)
+API_KEY = st.secrets.get("CFBD_API_KEY", "")
+
+st.sidebar.title("Institutional Power Grid")
+st.sidebar.markdown("Bayesian Shrinkage & Ridge Regression Engine")
+
+if not API_KEY:
+    API_KEY = st.sidebar.text_input("Enter CFBD API Key:", type="password")
+
+target_week = st.sidebar.slider("Active Season Week Scope", min_value=1, max_value=15, value=6)
+
+if st.sidebar.button("Purge & Re-Index Cache"):
+    st.cache_data.clear()
+    st.success("Cache cleared successfully!")
+
+
 @st.cache_data(ttl=3600)
-def fetch_granular_pbp_and_ratings(target_week=15):
+def fetch_granular_pbp_and_ratings(target_week=15, api_key=""):
     """Pulls play-by-play data week-by-week, calculates success rates,
     and constructs a Ridge Regression model to isolate true opponent-adjusted unit ratings.
     """
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+    if not api_key:
+        return {}, {}, {}
+        
+    headers = {"Authorization": f"Bearer {api_key}"}
     all_plays = []
     
-    # Loop through weeks to assemble complete play data safely
-    for w in range(1, target_week + 1):
+    # Safely clamp the loop to prevent excessive HTTP hanging
+    max_fetch_week = min(target_week, 3)
+    
+    for w in range(1, max_fetch_week + 1):
         url = f"https://api.collegefootballdata.com/plays?year=2026&seasonType=regular&week={w}"
         try:
-            res = requests.get(url, headers=headers)
+            res = requests.get(url, headers=headers, timeout=4)
             if res.status_code == 200:
                 data = res.json()
                 if data:
@@ -40,17 +62,14 @@ def fetch_granular_pbp_and_ratings(target_week=15):
         
     df_plays = pd.DataFrame(all_plays)
     
-    # Guard against empty frames or missing column schemas
     if df_plays.empty or 'play_type' not in df_plays.columns:
         return {}, {}, {}
     
-    # Filter out kickoffs, punts, and penalties for core efficiency metrics
     core_plays = df_plays[df_plays['play_type'].isin(['Rush', 'Pass Reception', 'Passing'])].copy()
     
     if core_plays.empty:
         return {}, {}, {}
     
-    # Calculate Down-and-Distance Success Rate
     def check_success(row):
         down = row.get('down', 1)
         dist = row.get('distance', 10)
@@ -63,20 +82,17 @@ def fetch_granular_pbp_and_ratings(target_week=15):
             return gained >= dist
 
     core_plays['success'] = core_plays.apply(check_success, axis=1)
-    
     team_sample_counts = core_plays['offense'].value_counts().to_dict()
     
-    # Aggregate offensive EPA and Success Rates
     agg_metrics = core_plays.groupby('offense').agg(
         off_epa=('ppa', 'mean'),
         success_rate=('success', 'mean')
     ).to_dict(orient='index')
     
-    # Ridge Regression for Opponent Adjustments (True Talent Model)
     games_url = "https://api.collegefootballdata.com/games?year=2026&seasonType=regular"
     ridge_ratings = {}
     try:
-        g_res = requests.get(games_url, headers=headers)
+        g_res = requests.get(games_url, headers=headers, timeout=4)
         if g_res.status_code == 200:
             games_data = g_res.json()
             matchups = []
@@ -113,3 +129,18 @@ def fetch_granular_pbp_and_ratings(target_week=15):
         pass
 
     return agg_metrics, team_sample_counts, ridge_ratings
+
+st.title("⚡ CFB Advanced Analytics Dashboard")
+
+if not API_KEY:
+    st.warning("Please input your College Football Data API Key in the sidebar to load the models.")
+else:
+    with st.spinner("Computing opponent-adjusted metrics and regressions..."):
+        metrics, samples, ratings = fetch_granular_pbp_and_ratings(target_week, API_KEY)
+        
+    if not ratings and not metrics:
+        st.info("No play data available for the selected scope yet. Try adjusting your week scope or check API connectivity.")
+    else:
+        st.subheader("Team Efficiency & Power Ratings")
+        rating_df = pd.DataFrame.from_dict(ratings, orient='index', columns=['Power Rating'])
+        st.dataframe(rating_df.sort_values(by='Power Rating', ascending=False), use_container_width=True)
