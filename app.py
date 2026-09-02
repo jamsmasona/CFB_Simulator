@@ -126,8 +126,20 @@ def fetch_all_sp_ratings():
                 team_name = item.get("team")
                 if team_name:
                     net_val = float(item.get("rating", 15.0))
-                    off_val = float(item.get("offense", item.get("offense_rating", net_val)))
-                    def_val = float(item.get("defense", item.get("defense_rating", net_val)))
+                    
+                    # Safely handle offense whether it's a dict or a direct number
+                    off_raw = item.get("offense", net_val)
+                    if isinstance(off_raw, dict):
+                        off_val = float(off_raw.get("rating", net_val))
+                    else:
+                        off_val = float(off_raw) if off_raw is not None else net_val
+
+                    # Safely handle defense whether it's a dict or a direct number
+                    def_raw = item.get("defense", net_val)
+                    if isinstance(def_raw, dict):
+                        def_val = float(def_raw.get("rating", net_val))
+                    else:
+                        def_val = float(def_raw) if def_raw is not None else net_val
                     
                     profiles[team_name] = {
                         "offense": off_val,
