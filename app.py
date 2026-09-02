@@ -124,19 +124,14 @@ def fetch_all_sp_ratings():
             data = res.json()
             for item in data:
                 team_name = item.get("team")
-                # SP+ endpoint typically nests off/def or provides them in sub-dictionaries
-                offense_data = item.get("offense", {})
-                defense_data = item.get("defense", {})
-                
-                # Fallback if structure varies, parsing safe floats
-                off_val = float(offense_data.get("rating", 0.0)) if isinstance(offense_data, dict) else 0.0
-                def_val = float(defense_data.get("rating", 0.0)) if isinstance(defense_data, dict) else 0.0
-                net_val = float(item.get("rating", 15.0))
-                
                 if team_name:
+                    net_val = float(item.get("rating", 15.0))
+                    off_val = float(item.get("offense", item.get("offense_rating", net_val)))
+                    def_val = float(item.get("defense", item.get("defense_rating", net_val)))
+                    
                     profiles[team_name] = {
-                        "offense": off_val if off_val != 0.0 else net_val / 2,
-                        "defense": def_val if def_val != 0.0 else net_val / 2,
+                        "offense": off_val,
+                        "defense": def_val,
                         "net": net_val
                     }
         else:
@@ -151,7 +146,6 @@ def fetch_advanced_profile(team_name):
     all_profiles = fetch_all_sp_ratings()
     if team_name in all_profiles:
         return all_profiles[team_name]
-    # Default fallback profile
     return {"offense": 15.0, "defense": 15.0, "net": 15.0}
 
 
@@ -224,16 +218,11 @@ else:
                 hfa = 2.5 if not is_neutral else 0.0
                 n_sims = 10000
 
-                # Unit-vs-Unit Expectation Math
-                # Team A's scoring mean is driven by Team A's Offense matched against Team B's Defense
-                # In SP+, lower defensive ratings are better (they allow fewer points/yards relative to average)
                 league_avg_scoring = 28.0
                 
-                # Scaling factor: Compare unit ratings relative to a baseline expectation
                 score_a_mean = league_avg_scoring + (p_a["offense"] - p_b["defense"]) / 3.0 + (hfa / 2)
                 score_b_mean = league_avg_scoring + (p_b["offense"] - p_a["defense"]) / 3.0 - (hfa / 2)
 
-                # Standard deviation set to a stable baseline (e.g., 10.0 points) since chaotic pace multipliers are removed
                 sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=10.0, size=n_sims), 0, 75)
                 sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=10.0, size=n_sims), 0, 75)
 
@@ -259,7 +248,6 @@ else:
                 blowouts_a = np.mean(simulated_margins >= 14) * 100
                 blowouts_b = np.mean(simulated_margins <= -14) * 100
 
-                # Box score metrics driven cleanly by the unit-adjusted final scores
                 sim_total_yds_a = np.clip(np.random.normal(loc=350 + (sim_scores_a * 4.0), scale=40, size=n_sims), 150, 700)
                 sim_total_yds_b = np.clip(np.random.normal(loc=350 + (sim_scores_b * 4.0), scale=40, size=n_sims), 150, 700)
                 
@@ -285,7 +273,6 @@ else:
                 with res_col2:
                     st.metric(label=f"{team_b} Win Probability", value=f"{win_prob_b*100:.1f}%")
 
-                # Scoreboard Banner Display
                 spread_text = f"{favored_team} -{abs(mean_margin):.1f}" if abs(mean_margin) > 0.5 else "Pick 'em"
                 st.markdown(
                     f"""
@@ -353,7 +340,6 @@ else:
                     st.markdown(f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{int(np.mean(sim_pass_yds_b))} yds</span></div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{int(np.mean(sim_rush_yds_b))} yds</span></div>", unsafe_allow_html=True)
 
-                # Log to history
                 st.session_state.history.insert(0, {
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Home Team": team_a,
