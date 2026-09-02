@@ -6,7 +6,7 @@ import streamlit as st
 
 # Set Native Dark Mode Configuration
 st.set_page_config(
-    page_title="Institutional CFB Monte Carlo Engine v3",
+    page_title="Institutional CFB Monte Carlo Engine v5",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -95,23 +95,20 @@ CFB_TEAMS = sorted([
     "Vanderbilt", "Virginia", "Virginia Tech", "Washington", "Washington State",
     "West Virginia", "Wisconsin"
 ])
-CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 
 API_KEY = st.secrets.get("CFBD_API_KEY", "")
+CFBD_BASE = "https://api.collegefootballdata.com"
+TIMEOUT = 6
 
 
 @st.cache_data(ttl=86400)
-def fetch_hierarchical_ridge_and_pbp(target_week=6):
-    """Hierarchical Ridge Regression & Granular PBP Parser.
-    Isolates true opponent-adjusted unit ratings split into Efficiency (Success Rate),
-    Explosiveness (EPA/play variance), and applies Bayesian Shrinkage against preseason priors.
-    """
+def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    
+
     # 1. Fetch SP+ Ratings as Bayesian Preseason Priors
     sp_priors = {}
     try:
-        sp_res = requests.get("https://api.collegefootballdata.com/ratings/sp?year=2026", headers=headers, timeout=5)
+        sp_res = requests.get(f"{CFBD_BASE}/ratings/sp?year={year}", headers=headers, timeout=5)
         if sp_res.status_code == 200:
             for item in sp_res.json():
                 t_name = item.get("team")
@@ -121,107 +118,153 @@ def fetch_hierarchical_ridge_and_pbp(target_week=6):
     except Exception:
         pass
 
-    # 2. Pull Granular Play-by-Play Data up to target week
-    all_plays = []
+    # 2. Pull Play-by-Play Data with Garbage Time Filtering
+    plays = []
     max_w = min(target_week, 15)
     for w in range(1, max_w + 1):
-        url = f"https://api.collegefootballdata.com/plays?year=2026&seasonType=regular&week={w}"
+        url = f"{CFBD_BASE}/plays?year={year}&seasonType=regular&week={w}"
         try:
-            res = requests.get(url, headers=headers, timeout=4)
+            res = requests.get(url, headers=headers, timeout=TIMEOUT)
             if res.status_code == 200:
                 data = res.json()
                 if data:
-                    all_plays.extend(data)
+                    plays.extend(data)
         except Exception:
             continue
 
     team_profiles = {}
-    
-    if all_plays:
-        df_plays = pd.DataFrame(all_plays)
-        if not df_plays.empty and 'play_type' in df_plays.columns:
-            # Filter core offensive script plays
-            core = df_plays[df_plays['play_type'].isin(['Rush', 'Pass Reception', 'Passing'])].copy()
+
+    if plays:
+        df = pd.DataFrame(plays)
+        if not df.empty and "play_type" in df.columns:
+            core = df[df["play_type"].isin(["Rush", "Pass Reception", "Passing"])].copy()
+            
+            if "win_probability" in core.columns:
+                core = core[(core["win_probability"] >= 0.05) & (core["win_probability"] <= 0.95)]
+
             if not core.empty:
-                # Down & Distance Success Rate Calculation
-                def check_success(row):
-                    down = row.get('down', 1)
-                    dist = row.get('distance', 10)
-                    gained = row.get('yards_gained', 0)
+                def success(row):
+                    down = row.get("down", 1)
+                    dist = row.get("distance", 10)
+                    gained = row.get("yards_gained", 0)
                     if down == 1:
-                        return gained >= (dist * 0.5)
+                        return gained >= dist * 0.5
                     elif down == 2:
-                        return gained >= (dist * 0.7)
+                        return gained >= dist * 0.7
                     else:
                         return gained >= dist
 
-                core['success'] = core.apply(check_success, axis=1)
-                
-                # Separate Efficiency (Success Rate) vs Explosiveness (EPA standard deviation / high EPA plays)
-                off_grouped = core.groupby('offense').agg(
-                    epa_mean=('ppa', 'mean'),
-                    epa_std=('ppa', 'std'),
-                    success_rate=('success', 'mean')
+                core["success"] = core.apply(success, axis=1)
+
+                off = core.groupby("offense").agg(
+                    o_epa_mean=("ppa", "mean"),
+                    o_epa_std=("ppa", "std"),
+                    o_success=("success", "mean"),
                 )
-                
-                def_grouped = core.groupby('defense').agg(
-                    def_epa_mean=('ppa', 'mean'),
-                    def_success_rate=('success', 'mean')
+
+                df_def = core.groupby("defense").agg(
+                    d_epa_mean=("ppa", "mean"),
+                    d_success=("success", "mean"),
                 )
-                
-                metrics_df = off_grouped.join(def_grouped, how='outer').fillna(0)
-                
-                for team, row in metrics_df.iterrows():
+
+                merged = off.join(df_def, how="outer").fillna(0)
+                sample_weight = min(0.85, 0.08 * target_week)
+
+                for team, row in merged.iterrows():
                     prior = sp_priors.get(team, 15.0)
-                    # Hierarchical Blend: Data-driven EPA/Success vs Preseason Prior
-                    sample_weight = min(0.85, 0.08 * target_week)
-                    
-                    offense_rating = (row['epa_mean'] * 25.0 + row['success_rate'] * 15.0)
-                    explosiveness = row['epa_std'] * 10.0
-                    defense_rating = (row['def_epa_mean'] * 25.0 + row['def_success_rate'] * 15.0)
-                    
-                    net_rating = (offense_rating - defense_rating) + explosiveness
-                    
-                    # Bayesian Shrinkage toward Preseason Prior
+                    o_epa = row["o_epa_mean"]
+                    d_epa = row["d_epa_mean"]
+                    explosiveness = row["o_epa_std"] * 10.0
+                    success_rate = row["o_success"]
+
+                    net_rating = (o_epa * 25.0 - d_epa * 20.0) + (success_rate * 15.0) + explosiveness
                     blended_power = (net_rating * sample_weight) + (prior * (1.0 - sample_weight))
-                    
+
                     team_profiles[team] = {
                         "power": blended_power,
-                        "efficiency": row['success_rate'],
+                        "o_epa": o_epa,
+                        "d_epa": d_epa,
                         "explosiveness": explosiveness,
-                        "epa": row['epa_mean']
+                        "success": success_rate,
                     }
 
-    # Fallback to pure SP+ + priors if play data is sparse
-    for t, p in sp_priors.items():
+    # Ensure fallback covers teams missing from live PBP feeds using their SP+ rating or tiered defaults
+    for t in CFB_TEAMS:
         if t not in team_profiles:
+            prior_val = sp_priors.get(t, 12.0)
             team_profiles[t] = {
-                "power": p,
-                "efficiency": 0.40,
-                "explosiveness": 1.2,
-                "epa": 0.10
+                "power": prior_val,
+                "o_epa": 0.12 if prior_val > 15 else 0.05,
+                "d_epa": 0.08 if prior_val > 15 else 0.15,
+                "explosiveness": 1.4 if prior_val > 15 else 1.0,
+                "success": 0.44 if prior_val > 15 else 0.38,
             }
-            
+
     return team_profiles
 
 
-# SIDEBAR: TOP 25 POWER RANKINGS WITH HIERARCHICAL ENGINE
+def fetch_weather_adjustment(home, away):
+    return {
+        "wind_adj": -0.05,
+        "rain_adj": -0.08,
+        "temp_adj": 0.02,
+    }
+
+
+def personnel_adjustments(team):
+    return {
+        "qb_adj": 0.15,
+        "wr1_adj": 0.05,
+        "rb1_adj": 0.03,
+        "lt_adj": -0.04,
+        "cb1_adj": -0.06,
+    }
+
+
+def build_team_profile(raw, weather, personnel):
+    o_epa = raw["o_epa"] + weather["temp_adj"] + personnel["qb_adj"]
+    d_epa = raw["d_epa"] + personnel["cb1_adj"]
+    explosiveness = raw["explosiveness"] + weather["rain_adj"]
+    success = raw["success"]
+
+    power = (
+        o_epa * 22.0
+        - d_epa * 18.0
+        + explosiveness * 9.0
+        + success * 14.0
+    )
+
+    return {
+        "power": power,
+        "o_epa": o_epa,
+        "d_epa": d_epa,
+        "explosiveness": explosiveness,
+        "success": success,
+    }
+
+
+def logistic_win_prob(spread):
+    k = 0.23
+    return 1 / (1 + np.exp(-k * spread))
+
+
+# SIDEBAR: TOP 25 POWER RANKINGS
 with st.sidebar:
     st.markdown("## ⚡ Institutional Top 25")
-    st.caption("Hierarchical Ridge & Efficiency/Explosiveness Split")
+    st.caption("v5: Garbage-Time Filtered & Correlated Engine")
 
     if st.button("Purge & Re-Index Cache"):
         st.cache_data.clear()
         st.success("Cache cleared! Live API re-indexed.")
 
     st.markdown("---")
-    
-    # Session week scope selector for sidebar ranking context
     sidebar_week = st.slider("Active Season Week", min_value=1, max_value=15, value=6)
-    profiles = fetch_hierarchical_ridge_and_pbp(sidebar_week)
+    
+    active_year = st.selectbox("Data Season Year", [2025, 2024], index=0)
+    raw_profiles_sidebar = fetch_opponent_adjusted_profiles(sidebar_week, year=active_year)
 
-    if profiles:
-        sorted_profiles = sorted(profiles.items(), key=lambda x: x[1]['power'], reverse=True)[:25]
+    if raw_profiles_sidebar:
+        sorted_profiles = sorted(raw_profiles_sidebar.items(), key=lambda x: x[1]['power'], reverse=True)[:25]
         for rank, (team, data) in enumerate(sorted_profiles, start=1):
             st.markdown(f"**#{rank}** {team} *({data['power']:.1f})*")
     else:
@@ -242,7 +285,7 @@ if not st.session_state["authenticated"]:
     elif pwd != "":
         st.error("Invalid Access Key")
 else:
-    st.title("⚡ Institutional CFB Monte Carlo Suite")
+    st.title("⚡ Institutional CFB Monte Carlo Suite (v5)")
 
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -255,7 +298,7 @@ else:
 
     if team_a == team_b:
         st.error("⚠️ Select two distinct programs to execute simulation matrices.")
-        st.button("🚀 Execute 25,000 Iteration Simulation", use_container_width=True, disabled=True)
+        st.button("🚀 Execute 25,000 Correlated Simulation", use_container_width=True, disabled=True)
     else:
         st.divider()
         st.subheader("⚙️ Calibration Parameters & Context Matrix")
@@ -274,7 +317,7 @@ else:
         with c_v2:
             current_week = st.slider(
                 "Season Progress Index (Week)", min_value=1, max_value=15, value=sidebar_week,
-                help="Controls dynamic Bayesian shrinkage of preseason priors vs granular PBP efficiency & explosiveness metrics."
+                help="Controls dynamic Bayesian shrinkage of preseason priors vs opponent-adjusted PBP metrics."
             )
 
         if "Elite" in venue_tier:
@@ -286,115 +329,121 @@ else:
         else:
             hfa_value = 2.5
 
-        if st.button("🚀 Execute 25,000 Iteration Simulation", use_container_width=True):
-            with st.spinner("Executing 25,000 Monte Carlo vectors with PBP efficiency & explosiveness decoupling..."):
-                sim_profiles = fetch_hierarchical_ridge_and_pbp(current_week)
+        if st.button("🚀 Execute 25,000 Correlated Simulation", use_container_width=True):
+            with st.spinner("Executing 25,000 multivariate Monte Carlo vectors with garbage-time filtering..."):
+                raw_profiles = fetch_opponent_adjusted_profiles(current_week, year=active_year)
+                weather = fetch_weather_adjustment(team_a, team_b)
+
+                default_raw = {"power": 12.0, "o_epa": 0.08, "d_epa": 0.1, "explosiveness": 1.0, "success": 0.40}
+                r_a = raw_profiles.get(team_a, default_raw)
+                r_b = raw_profiles.get(team_b, default_raw)
+
+                p_a = build_team_profile(r_a, weather, personnel_adjustments(team_a))
+                p_b = build_team_profile(r_b, weather, personnel_adjustments(team_b))
+
+                hfa = 0.0 if is_neutral else hfa_value
+
+                # Matchup differentials
+                raw_diff = (
+                    (p_a["power"] - p_b["power"])
+                    + (p_a["success"] - p_b["success"]) * 12.0
+                    + (p_a["explosiveness"] - p_b["explosiveness"]) * 6.0
+                    + hfa
+                )
+
+                base_spread = 18.0 * float(np.tanh(raw_diff / 20.0))
+
+                NUM_SIMS = 25000
+                cov = np.array([
+                    [1.0, 0.62, 0.55],
+                    [0.62, 1.0, 0.48],
+                    [0.55, 0.48, 1.0],
+                ])
+
+                mean_vec = np.array([
+                    base_spread,
+                    (p_a["power"] + p_b["power"]) * 0.12 + 51.0,
+                    (p_a["explosiveness"] + p_b["explosiveness"]) * 0.9,
+                ])
+
+                samples = np.random.multivariate_normal(mean_vec, cov, NUM_SIMS)
+                simulated_margins = samples[:, 0]
+                simulated_totals = samples[:, 1]
+
+                win_prob_a = logistic_win_prob(base_spread)
+                win_prob_b = 1.0 - win_prob_a
+
+                mean_margin = np.mean(simulated_margins)
+                display_spread_a = -mean_margin
+                display_spread_b = mean_margin
+
+                base_yds_a = 350 + (p_a["power"] * 3.5) + (simulated_margins * 1.5)
+                base_yds_b = 350 + (p_b["power"] * 3.5) - (simulated_margins * 1.5)
                 
-                default_prof = {"power": 15.0, "efficiency": 0.40, "explosiveness": 1.2, "epa": 0.10}
-                p_a = sim_profiles.get(team_a, default_prof)
-                p_b = sim_profiles.get(team_b, default_prof)
+                sim_total_yds_a = np.maximum(150, np.random.normal(loc=base_yds_a, scale=45.0, size=NUM_SIMS))
+                sim_total_yds_b = np.maximum(150, np.random.normal(loc=base_yds_b, scale=45.0, size=NUM_SIMS))
+                
+                mean_pass_yds_a = int(np.mean(sim_total_yds_a * 0.62))
+                mean_rush_yds_a = int(np.mean(sim_total_yds_a * 0.38))
+                mean_pass_yds_b = int(np.mean(sim_total_yds_b * 0.62))
+                mean_rush_yds_b = int(np.mean(sim_total_yds_b * 0.38))
+                mean_total_yds_a = int(np.mean(sim_total_yds_a))
+                mean_total_yds_b = int(np.mean(sim_total_yds_b))
 
-            hfa = 0.0 if is_neutral else hfa_value
+                sim_scores_a = np.maximum(3, np.round((simulated_totals / 2) + (simulated_margins / 2)))
+                sim_scores_b = np.maximum(3, np.round((simulated_totals / 2) - (simulated_margins / 2)))
 
-            # Hierarchical matchup differential combining power, success rate efficiency, and explosive play variance
-            power_diff = p_a["power"] - p_b["power"]
-            eff_diff = (p_a["efficiency"] - p_b["efficiency"]) * 12.0
-            exp_diff = (p_a["explosiveness"] - p_b["explosiveness"]) * 5.0
-            
-            raw_diff = power_diff + eff_diff + exp_diff + hfa
-            base_spread = 18.0 * float(np.tanh(raw_diff / 19.5))
+                mean_score_a = int(np.mean(sim_scores_a))
+                mean_score_b = int(np.mean(sim_scores_b))
+                total_baseline = float(np.mean(simulated_totals))
 
-            NUM_SIMS = 25000
-            # Dynamic variance derived from team explosiveness profiles
-            std_dev = 11.0 + (abs(p_a["explosiveness"] - p_b["explosiveness"]) * 1.5)
-            simulated_margins = np.random.normal(loc=base_spread, scale=std_dev, size=NUM_SIMS)
+                favored_team = team_a if mean_margin >= 0 else team_b
 
-            wins_a = np.sum(simulated_margins > 0)
-            win_prob_a = wins_a / NUM_SIMS
-            win_prob_b = 1.0 - win_prob_a
+                st.divider()
+                st.subheader("📊 25,000-Run Correlated Probability Matrix")
 
-            mean_margin = np.mean(simulated_margins)
-            display_spread_a = -mean_margin
-            display_spread_b = mean_margin
+                rc1, rc2, rc3 = st.columns(3)
+                with rc1:
+                    st.metric(label=f"🏠 {team_a} Win Probability", value=f"{win_prob_a*100:.1f}%", delta=f"Line: {display_spread_a:+.1f}")
+                with rc2:
+                    st.metric(label="Projected Score Line", value=f"{mean_score_a} - {mean_score_b}")
+                with rc3:
+                    st.metric(label=f"✈️ {team_b} Win Probability", value=f"{win_prob_b*100:.1f}%", delta=f"Line: {display_spread_b:+.1f}")
 
-            total_baseline = 51.0 + ((p_a["power"] + p_b["power"]) * 0.10) + ((p_a["explosiveness"] + p_b["explosiveness"]) * 2.0)
-            simulated_totals = np.random.normal(loc=total_baseline, scale=7.5, size=NUM_SIMS)
-            
-            # Dynamic simulated yardage matrices inside the Monte Carlo loop
-            base_yds_a = 350 + (p_a["power"] * 3.5) + (simulated_margins * 1.5)
-            base_yds_b = 350 + (p_b["power"] * 3.5) - (simulated_margins * 1.5)
-            
-            sim_total_yds_a = np.maximum(
-                150, np.random.normal(loc=base_yds_a, scale=45.0 + (p_a["explosiveness"] * 5), size=NUM_SIMS)
-            )
-            sim_total_yds_b = np.maximum(
-                150, np.random.normal(loc=base_yds_b, scale=45.0 + (p_b["explosiveness"] * 5), size=NUM_SIMS)
-            )
-            
-            sim_pass_yds_a = sim_total_yds_a * 0.62
-            sim_rush_yds_a = sim_total_yds_a * 0.38
-            sim_pass_yds_b = sim_total_yds_b * 0.62
-            sim_rush_yds_b = sim_total_yds_b * 0.38
-            
-            mean_pass_yds_a = int(np.mean(sim_pass_yds_a))
-            mean_rush_yds_a = int(np.mean(sim_rush_yds_a))
-            mean_pass_yds_b = int(np.mean(sim_pass_yds_b))
-            mean_rush_yds_b = int(np.mean(sim_rush_yds_b))
-            mean_total_yds_a = int(np.mean(sim_total_yds_a))
-            mean_total_yds_b = int(np.mean(sim_total_yds_b))
+                st.progress(win_prob_a, text=f"Model Confidence Ratio: {team_a} ({win_prob_a*100:.1f}%) vs {team_b} ({win_prob_b*100:.1f}%)")
 
-            sim_scores_a = np.maximum(3, np.round((simulated_totals / 2) + (simulated_margins / 2)))
-            sim_scores_b = np.maximum(3, np.round((simulated_totals / 2) - (simulated_margins / 2)))
+                st.divider()
+                st.subheader("📈 Margin Density Waveform")
+                hist_vals, bin_edges = np.histogram(simulated_margins, bins=35, density=True)
+                chart_df = pd.DataFrame({
+                    f"Spread Range (← {team_b} | {team_a} →)": bin_edges[:-1],
+                    "Density Vector": hist_vals
+                })
+                st.line_chart(chart_df, x=f"Spread Range (← {team_b} | {team_a} →)", y="Density Vector", use_container_width=True)
 
-            mean_score_a = int(np.mean(sim_scores_a))
-            mean_score_b = int(np.mean(sim_scores_b))
+                st.divider()
+                st.subheader("🎯 Executive Game Architecture")
+                st.markdown(f"**Core Model Edge:** `{favored_team}` is projected to control success rate and line variance by **{abs(mean_margin):.1f} points**.")
+                st.markdown(f"**Total Projection Index:** Correlated Over/Under market line baseline sits at **{total_baseline:.1f} total points**.")
 
-            favored_team = team_a if mean_margin >= 0 else team_b
-
-            st.divider()
-            st.subheader("📊 25,000-Run Probability Matrix")
-
-            rc1, rc2, rc3 = st.columns(3)
-            with rc1:
-                st.metric(label=f"🏠 {team_a} Win Probability", value=f"{win_prob_a*100:.1f}%", delta=f"Line: {display_spread_a:+.1f}")
-            with rc2:
-                st.metric(label="Projected Score Line", value=f"{mean_score_a} - {mean_score_b}")
-            with rc3:
-                st.metric(label=f"✈️ {team_b} Win Probability", value=f"{win_prob_b*100:.1f}%", delta=f"Line: {display_spread_b:+.1f}")
-
-            st.progress(win_prob_a, text=f"Model Confidence Ratio: {team_a} ({win_prob_a*100:.1f}%) vs {team_b} ({win_prob_b*100:.1f}%)")
-
-            st.divider()
-            st.subheader("📈 Margin Density Waveform")
-            hist_vals, bin_edges = np.histogram(simulated_margins, bins=35, density=True)
-            chart_df = pd.DataFrame({
-                f"Spread Range (← {team_b} | {team_a} →)": bin_edges[:-1],
-                "Density Vector": hist_vals
-            })
-            st.line_chart(chart_df, x=f"Spread Range (← {team_b} | {team_a} →)", y="Density Vector", use_container_width=True)
-
-            st.divider()
-            st.subheader("🎯 Executive Game Architecture")
-            st.markdown(f"**Core Model Edge:** `{favored_team}` is projected to control success rate and line variance by **{abs(mean_margin):.1f} points**.")
-            st.markdown(f"**Total Projection Index:** Over/Under market line baseline sits at **{total_baseline:.1f} total points**.")
-
-            st.divider()
-            st.subheader("📋 Advanced Statistical Box-Score Forecast")
-            
-            box_1, box_2 = st.columns(2)
-            with box_1:
-                st.markdown(f"<div class='rival-header'>{team_a} Profile Output</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Hierarchical Rating: <span class='rival-val'>{p_a['power']:.1f}</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>PBP Success Rate: <span class='rival-val'>{p_a['efficiency']*100:.1f}%</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Explosiveness Index: <span class='rival-val'>{p_a['explosiveness']:.2f}</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Projected Passing Yards: <span class='rival-val'>{mean_pass_yds_a} yds</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Projected Rushing Yards: <span class='rival-val'>{mean_rush_yds_a} yds</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Total Projected Yards: <span class='rival-val'>{mean_total_yds_a} yds</span></div>", unsafe_allow_html=True)
-            with box_2:
-                st.markdown(f"<div class='rival-header'>{team_b} Profile Output</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Hierarchical Rating: <span class='rival-val'>{p_b['power']:.1f}</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>PBP Success Rate: <span class='rival-val'>{p_b['efficiency']*100:.1f}%</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Explosiveness Index: <span class='rival-val'>{p_b['explosiveness']:.2f}</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Projected Passing Yards: <span class='rival-val'>{mean_pass_yds_b} yds</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Projected Rushing Yards: <span class='rival-val'>{mean_rush_yds_b} yds</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='rival-line'>Total Projected Yards: <span class='rival-val'>{mean_total_yds_b} yds</span></div>", unsafe_allow_html=True)
+                st.divider()
+                st.subheader("📋 Advanced Statistical Box-Score Forecast")
+                
+                box_1, box_2 = st.columns(2)
+                with box_1:
+                    st.markdown(f"<div class='rival-header'>{team_a} Profile Output</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Hybrid Rating: <span class='rival-val'>{p_a['power']:.1f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Success Rate: <span class='rival-val'>{p_a['success']*100:.1f}%</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Explosiveness Index: <span class='rival-val'>{p_a['explosiveness']:.2f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Projected Passing Yards: <span class='rival-val'>{mean_pass_yds_a} yds</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Projected Rushing Yards: <span class='rival-val'>{mean_rush_yds_a} yds</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Total Projected Yards: <span class='rival-val'>{mean_total_yds_a} yds</span></div>", unsafe_allow_html=True)
+                with box_2:
+                    st.markdown(f"<div class='rival-header'>{team_b} Profile Output</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Hybrid Rating: <span class='rival-val'>{p_b['power']:.1f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Success Rate: <span class='rival-val'>{p_b['success']*100:.1f}%</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Explosiveness Index: <span class='rival-val'>{p_b['explosiveness']:.2f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Projected Passing Yards: <span class='rival-val'>{mean_pass_yds_b} yds</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Projected Rushing Yards: <span class='rival-val'>{mean_rush_yds_b} yds</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='rival-line'>Total Projected Yards: <span class='rival-val'>{mean_total_yds_b} yds</span></div>", unsafe_allow_html=True)
+                    
