@@ -232,11 +232,12 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                score_a_mean = league_avg_scoring + (p_a["offense"] - p_b["defense"]) / 3.0 + (hfa / 2)
-                score_b_mean = league_avg_scoring + (p_b["offense"] - p_a["defense"]) / 3.0 - (hfa / 2)
+                # Scaled divergence math for proper blowouts and defensive suppression
+                score_a_mean = league_avg_scoring + (p_a["offense"] - p_b["defense"]) / 2.0 + (hfa / 2)
+                score_b_mean = league_avg_scoring + (p_b["offense"] - p_a["defense"]) / 2.0 - (hfa / 2)
 
-                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=10.0, size=n_sims), 0, 75)
-                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=10.0, size=n_sims), 0, 75)
+                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=12.5, size=n_sims), 0, 75)
+                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=12.5, size=n_sims), 0, 75)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
