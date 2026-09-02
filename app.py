@@ -103,7 +103,7 @@ TIMEOUT = 6
 
 
 @st.cache_data(ttl=86400)
-def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
+def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
     headers = {"Authorization": f"Bearer {API_KEY}"}
 
     # 1. Fetch SP+ Ratings as Bayesian Preseason Priors
@@ -262,7 +262,10 @@ with st.sidebar:
 
     st.markdown("---")
     sidebar_week = st.slider("Active Season Week", min_value=1, max_value=15, value=6)
-    raw_profiles_sidebar = fetch_opponent_adjusted_profiles(sidebar_week)
+    
+    # Toggle or fallback year selector for historical data testing
+    active_year = st.selectbox("Data Season Year", [2025, 2024], index=0)
+    raw_profiles_sidebar = fetch_opponent_adjusted_profiles(sidebar_week, year=active_year)
 
     if raw_profiles_sidebar:
         sorted_profiles = sorted(raw_profiles_sidebar.items(), key=lambda x: x[1]['power'], reverse=True)[:25]
@@ -332,7 +335,7 @@ else:
 
         if st.button("🚀 Execute 25,000 Correlated Simulation", use_container_width=True):
             with st.spinner("Executing 25,000 multivariate Monte Carlo vectors with garbage-time filtering..."):
-                raw_profiles = fetch_opponent_adjusted_profiles(current_week)
+                raw_profiles = fetch_opponent_adjusted_profiles(current_week, year=active_year)
                 weather = fetch_weather_adjustment(team_a, team_b)
 
                 default_raw = {"power": 15.0, "o_epa": 0.1, "d_epa": 0.1, "explosiveness": 1.0, "success": 0.40}
