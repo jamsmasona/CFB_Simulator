@@ -1,3 +1,20 @@
+from datetime import datetime
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+from sklearn.linear_model import Ridge
+
+# Set Native Dark Mode Configuration
+st.set_page_config(
+    page_title="Institutional CFB Analytics Engine",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+if "history" not in st.session_state:
+    st.session_state.history = []
 @st.cache_data(ttl=3600)
 def fetch_granular_pbp_and_ratings(target_week=15):
     """Pulls play-by-play data week-by-week, calculates success rates,
