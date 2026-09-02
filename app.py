@@ -319,6 +319,19 @@ else:
             with res_col2:
                 st.metric(label=f"{team_b} Win Probability", value=f"{win_prob_b*100:.1f}%")
 
+            # Scoreboard Banner Display
+            spread_text = f"{favored_team} -{abs(mean_margin):.1f}" if abs(mean_margin) > 0.5 else "Pick 'em"
+            st.markdown(
+                f"""
+                <div style="background-color: #161b22; border: 2px solid #30363d; border-radius: 12px; padding: 20px; text-align: center; margin-top: 15px; margin-bottom: 15px; box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);">
+                    <div style="font-size: 1.1rem; font-weight: 700; color: #8b949e; margin-bottom: 5px;">SCOREBOARD PREDICTION</div>
+                    <div style="font-size: 2.4rem; font-weight: 900; color: #58a6ff; letter-spacing: 1px;">{team_a} {mean_score_a:.1f} — {team_b} {mean_score_b:.1f}</div>
+                    <div style="font-size: 1.2rem; font-weight: 600; color: #f0f6fc; margin-top: 8px;">Spread: <span style="color: #58a6ff;">{spread_text}</span> &nbsp;|&nbsp; Total Line: <span style="color: #58a6ff;">{total_baseline:.1f}</span></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
             st.divider()
             st.subheader("📈 Projected Point Margin Distribution")
             st.caption(
