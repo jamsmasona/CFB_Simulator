@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetimefrom datetime import datetime
 import numpy as np
 import pandas as pd
 import requests
@@ -153,7 +153,7 @@ def fetch_advanced_season_stats():
 @st.cache_data(ttl=3600)
 def fetch_completed_games_adjustment():
     """Automatically parses completed games from the CFBD API to build 
-    a real-time performance modifier based on actual game margins vs expectations.
+    a real-time performance modifier based on actual game margins.
     """
     url = "https://api.collegefootballdata.com/games?year=2026&seasonType=regular"
     headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -170,18 +170,13 @@ def fetch_completed_games_adjustment():
                 home_pts = game.get("home_points")
                 away_pts = game.get("away_points")
                 
-                # Only analyze completed games where points are recorded
                 if home_pts is not None and away_pts is not None:
-                    margin = home_pts - away_pts  # positive means home won by margin
-                    
-                    # Accumulate raw point differential performance
+                    margin = home_pts - away_pts
                     adjustments[home_team] = adjustments.get(home_team, 0.0) + (margin * 0.25)
                     adjustments[away_team] = adjustments.get(away_team, 0.0) - (margin * 0.25)
-                    
                     team_game_counts[home_team] = team_game_counts.get(home_team, 0) + 1
                     team_game_counts[away_team] = team_game_counts.get(away_team, 0) + 1
             
-            # Average out the adjustment by games played
             for team in adjustments:
                 if team_game_counts.get(team, 0) > 0:
                     adjustments[team] = adjustments[team] / team_game_counts[team]
@@ -198,8 +193,6 @@ def fetch_advanced_profile(team_name):
     
     sp_val = all_ratings.get(team_name, 15.0)
     stat_val = all_stats.get(team_name, sp_val)
-    
-    # Automatically apply real-world game performance modifier
     auto_adj = auto_adjustments.get(team_name, 0.0)
     
     return {
@@ -223,7 +216,6 @@ with st.sidebar:
     auto_adjustments = fetch_completed_games_adjustment()
 
     if all_ratings:
-        # Build composite rating including auto game performance adjustments
         composite_ratings = {
             team: rating + auto_adjustments.get(team, 0.0) 
             for team, rating in all_ratings.items()
@@ -540,7 +532,7 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_b}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_yds_b // 55}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
