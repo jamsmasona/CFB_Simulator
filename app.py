@@ -201,7 +201,16 @@ def fetch_all_sp_ratings():
 def fetch_advanced_profile(team_name):
     all_ratings = fetch_all_sp_ratings()
     sp_val = all_ratings.get(team_name, 15.0)
-    return {"sp": sp_val}
+    
+    # Dynamic volatility and pace factors derived from SP+ profile
+    volatility = 8.5 + (abs(sp_val) * 0.09)
+    pace_factor = 1.0 + (0.06 if sp_val > 18 else (-0.06 if sp_val < 2 else 0.0))
+    
+    return {
+        "sp": sp_val,
+        "volatility": volatility,
+        "pace": pace_factor
+    }
 
 
 # SIDEBAR: DYNAMIC TOP 25 MODEL RANKINGS
@@ -266,22 +275,24 @@ else:
         )
     else:
         if st.button("🎲 Run 10,000 Monte Carlo Simulations", use_container_width=True):
-            with st.spinner("Processing 10,000 Monte Carlo game iterations..."):
+            with st.spinner("Processing 10,000 Monte Carlo game iterations with dynamic pace & volatility..."):
                 p_a = fetch_advanced_profile(team_a)
                 p_b = fetch_advanced_profile(team_b)
 
                 hfa = 0.0 if is_neutral else 2.5
                 n_sims = 10000
 
-                # Fully Simulated Monte Carlo Engine Arrays
+                # Enhanced Monte Carlo Engine with Pace and Volatility
                 expected_diff = (p_a["sp"] - p_b["sp"]) + hfa
-                base_scoring_mean = 27.5
+                combined_pace = (p_a["pace"] + p_b["pace"]) / 2.0
+                base_scoring_mean = 27.5 * combined_pace
+                
                 score_a_mean = base_scoring_mean + (expected_diff / 2)
                 score_b_mean = base_scoring_mean - (expected_diff / 2)
 
-                # Generate 10,000 independent game score outcomes
-                sim_scores_a = np.random.normal(loc=max(3, score_a_mean), scale=10.0, size=n_sims)
-                sim_scores_b = np.random.normal(loc=max(3, score_b_mean), scale=10.0, size=n_sims)
+                # Generate 10,000 independent game score outcomes using team-specific volatility and pace modifiers
+                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=p_a["volatility"], size=n_sims) * np.random.normal(p_a["pace"], 0.02, size=n_sims), 3, 75)
+                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=p_b["volatility"], size=n_sims) * np.random.normal(p_b["pace"], 0.02, size=n_sims), 3, 75)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
@@ -306,8 +317,8 @@ else:
                 blowouts_b = np.mean(simulated_margins <= -14) * 100
 
                 # Fully simulated box score metrics derived across the distribution of all 10,000 runs
-                sim_total_yds_a = np.clip(np.random.normal(loc=380 + (sim_scores_a * 3.5), scale=50, size=n_sims), 150, 750)
-                sim_total_yds_b = np.clip(np.random.normal(loc=380 + (sim_scores_b * 3.5), scale=50, size=n_sims), 150, 750)
+                sim_total_yds_a = np.clip(np.random.normal(loc=(380 * p_a["pace"]) + (sim_scores_a * 3.5), scale=45, size=n_sims), 150, 750)
+                sim_total_yds_b = np.clip(np.random.normal(loc=(380 * p_b["pace"]) + (sim_scores_b * 3.5), scale=45, size=n_sims), 150, 750)
                 
                 sim_pass_yds_a = sim_total_yds_a * np.random.normal(0.64, 0.05, size=n_sims)
                 sim_rush_yds_a = sim_total_yds_a - sim_pass_yds_a
@@ -327,160 +338,159 @@ else:
                 sim_first_downs_a = np.round(sim_total_yds_a / 17.5)
                 sim_first_downs_b = np.round(sim_total_yds_b / 17.5)
 
-            res_col1, res_col2 = st.columns(2)
-            with res_col1:
-                st.metric(label=f"{team_a} Win Probability", value=f"{win_prob_a*100:.1f}%")
-            with res_col2:
-                st.metric(label=f"{team_b} Win Probability", value=f"{win_prob_b*100:.1f}%")
+                res_col1, res_col2 = st.columns(2)
+                with res_col1:
+                    st.metric(label=f"{team_a} Win Probability", value=f"{win_prob_a*100:.1f}%")
+                with res_col2:
+                    st.metric(label=f"{team_b} Win Probability", value=f"{win_prob_b*100:.1f}%")
 
-            # Scoreboard Banner Display
-            spread_text = f"{favored_team} -{abs(mean_margin):.1f}" if abs(mean_margin) > 0.5 else "Pick 'em"
-            st.markdown(
-                f"""
-                <div style="background-color: #161b22; border: 2px solid #30363d; border-radius: 12px; padding: 20px; text-align: center; margin-top: 15px; margin-bottom: 15px; box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);">
-                    <div style="font-size: 1.1rem; font-weight: 700; color: #8b949e; margin-bottom: 5px;">SCOREBOARD PREDICTION</div>
-                    <div style="font-size: 2.4rem; font-weight: 900; color: #58a6ff; letter-spacing: 1px;">{team_a} {mean_score_a:.1f} — {team_b} {mean_score_b:.1f}</div>
-                    <div style="font-size: 1.2rem; font-weight: 600; color: #f0f6fc; margin-top: 8px;">Spread: <span style="color: #58a6ff;">{spread_text}</span> &nbsp;|&nbsp; Total Line: <span style="color: #58a6ff;">{total_baseline:.1f}</span></div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.divider()
-            st.subheader("📈 Projected Point Margin Distribution")
-            st.caption(
-                f"Shows how often each team wins by various margins across 10,000"
-                f" simulations. Left side = {team_b} wins | Right side = {team_a} wins"
-                " | Center line (0) = Overtime / Toss-up."
-            )
-
-            hist_values, bin_edges = np.histogram(
-                simulated_margins, bins=30, density=True
-            )
-            chart_data = pd.DataFrame({
-                f"Margin (← {team_b} Wins | {team_a} Wins →)": bin_edges[:-1],
-                "Simulation Frequency Density": hist_values,
-            })
-            st.line_chart(
-                chart_data,
-                x=f"Margin (← {team_b} Wins | {team_a} Wins →)",
-                y="Simulation Frequency Density",
-                use_container_width=True,
-            )
-
-            st.divider()
-            st.subheader("📈 Betting Market Analytics")
-
-            st.markdown(
-                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on SP+ differentials and venue adjustments."
-            )
-            st.markdown(
-                f"**Model Total Baseline:** Projected combined scoring line is **{total_baseline:.1f} points**."
-            )
-            st.markdown(
-                f"**Game Script Distribution:** One-possession game probability (≤ 8 pts) is **{one_possession:.1f}%**. "
-                f"Decisive margin probability (14+ pts) is **{blowouts_a:.1f}%** for `{team_a}` and **{blowouts_b:.1f}%** for `{team_b}`."
-            )
-
-            st.divider()
-            st.subheader("🏈 Simulated Average Game Box Score")
-
-            # Fully simulated average values across the 10,000 runs
-            avg_first_downs_a = int(np.mean(sim_first_downs_a))
-            avg_total_yds_a = int(np.mean(sim_total_yds_a))
-            avg_pass_yds_a = int(np.mean(sim_pass_yds_a))
-            avg_rush_yds_a = int(np.mean(sim_rush_yds_a))
-            avg_pass_tds_a = round(np.mean(sim_pass_tds_a), 1)
-            avg_rush_tds_a = round(np.mean(sim_rush_tds_a), 1)
-            avg_fgs_a = round(np.mean(sim_fgs_a), 1)
-
-            avg_first_downs_b = int(np.mean(sim_first_downs_b))
-            avg_total_yds_b = int(np.mean(sim_total_yds_b))
-            avg_pass_yds_b = int(np.mean(sim_pass_yds_b))
-            avg_rush_yds_b = int(np.mean(sim_rush_yds_b))
-            avg_pass_tds_b = round(np.mean(sim_pass_tds_b), 1)
-            avg_rush_tds_b = round(np.mean(sim_rush_tds_b), 1)
-            avg_fgs_b = round(np.mean(sim_fgs_b), 1)
-
-            box_col1, box_col2 = st.columns(2)
-            with box_col1:
+                # Scoreboard Banner Display
+                spread_text = f"{favored_team} -{abs(mean_margin):.1f}" if abs(mean_margin) > 0.5 else "Pick 'em"
                 st.markdown(
-                    f"<div class='stat-header'>{team_a} (Home) - SP+: {p_a['sp']:.1f}</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_a}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_a} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_a} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_a} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_a}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_a}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_a}</span></div>",
+                    f"""
+                    <div style="background-color: #161b22; border: 2px solid #30363d; border-radius: 12px; padding: 20px; text-align: center; margin-top: 15px; margin-bottom: 15px; box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);">
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #8b949e; margin-bottom: 5px;">SCOREBOARD PREDICTION</div>
+                        <div style="font-size: 2.4rem; font-weight: 900; color: #58a6ff; letter-spacing: 1px;">{team_a} {mean_score_a:.1f} — {team_b} {mean_score_b:.1f}</div>
+                        <div style="font-size: 1.2rem; font-weight: 600; color: #f0f6fc; margin-top: 8px;">Spread: <span style="color: #58a6ff;">{spread_text}</span> &nbsp;|&nbsp; Total Line: <span style="color: #58a6ff;">{total_baseline:.1f}</span></div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
 
-            with box_col2:
-                st.markdown(
-                    f"<div class='stat-header'>{team_b} (Away) - SP+: {p_b['sp']:.1f}</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_b}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_b} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_b} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_b} yds</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_b}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_b}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_b}</span></div>",
-                    unsafe_allow_html=True,
+                st.divider()
+                st.subheader("📈 Projected Point Margin Distribution")
+                st.caption(
+                    f"Shows how often each team wins by various margins across 10,000"
+                    f" simulations. Left side = {team_b} wins | Right side = {team_a} wins"
+                    " | Center line (0) = Overtime / Toss-up."
                 )
 
-            # Log to history
-            st.session_state.history.insert(0, {
-                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Home Team": team_a,
-                "Away Team": team_b,
-                "Favored": favored_team,
-                "Spread": f"{abs(mean_margin):.1f}",
-                f"{team_a} Win %": f"{win_prob_a*100:.1f}%",
-                f"{team_b} Win %": f"{win_prob_b*100:.1f}%"
-            })
+                hist_values, bin_edges = np.histogram(
+                    simulated_margins, bins=30, density=True
+                )
+                chart_data = pd.DataFrame({
+                    f"Margin (← {team_b} Wins | {team_a} Wins →)": bin_edges[:-1],
+                    "Simulation Frequency Density": hist_values,
+                })
+                st.line_chart(
+                    chart_data,
+                    x=f"Margin (← {team_b} Wins | {team_a} Wins →)",
+                    y="Simulation Frequency Density",
+                    use_container_width=True,
+                )
+
+                st.divider()
+                st.subheader("📈 Betting Market Analytics")
+
+                st.markdown(
+                    f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on SP+ differentials, venue adjustments, and pace factors."
+                )
+                st.markdown(
+                    f"**Model Total Baseline:** Projected combined scoring line is **{total_baseline:.1f} points**."
+                )
+                st.markdown(
+                    f"**Game Script Distribution:** One-possession game probability (≤ 8 pts) is **{one_possession:.1f}%**. "
+                    f"Decisive margin probability (14+ pts) is **{blowouts_a:.1f}%** for `{team_a}` and **{blowouts_b:.1f}%** for `{team_b}`."
+                )
+
+                st.divider()
+                st.subheader("🏈 Simulated Average Game Box Score")
+
+                avg_first_downs_a = int(np.mean(sim_first_downs_a))
+                avg_total_yds_a = int(np.mean(sim_total_yds_a))
+                avg_pass_yds_a = int(np.mean(sim_pass_yds_a))
+                avg_rush_yds_a = int(np.mean(sim_rush_yds_a))
+                avg_pass_tds_a = round(np.mean(sim_pass_tds_a), 1)
+                avg_rush_tds_a = round(np.mean(sim_rush_tds_a), 1)
+                avg_fgs_a = round(np.mean(sim_fgs_a), 1)
+
+                avg_first_downs_b = int(np.mean(sim_first_downs_b))
+                avg_total_yds_b = int(np.mean(sim_total_yds_b))
+                avg_pass_yds_b = int(np.mean(sim_pass_yds_b))
+                avg_rush_yds_b = int(np.mean(sim_rush_yds_b))
+                avg_pass_tds_b = round(np.mean(sim_pass_tds_b), 1)
+                avg_rush_tds_b = round(np.mean(sim_rush_tds_b), 1)
+                avg_fgs_b = round(np.mean(sim_fgs_b), 1)
+
+                box_col1, box_col2 = st.columns(2)
+                with box_col1:
+                    st.markdown(
+                        f"<div class='stat-header'>{team_a} (Home) - SP+: {p_a['sp']:.1f}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_a}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_a} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_a} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_a} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_a}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_a}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_a}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                with box_col2:
+                    st.markdown(
+                        f"<div class='stat-header'>{team_b} (Away) - SP+: {p_b['sp']:.1f}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_b}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_b} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_b} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_b} yds</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_b}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_b}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_b}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # Log to history
+                st.session_state.history.insert(0, {
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Home Team": team_a,
+                    "Away Team": team_b,
+                    "Favored": favored_team,
+                    "Spread": f"{abs(mean_margin):.1f}",
+                    f"{team_a} Win %": f"{win_prob_a*100:.1f}%",
+                    f"{team_b} Win %": f"{win_prob_b*100:.1f}%"
+                })
 
     st.divider()
     st.subheader("🕒 Recent Simulation History")
