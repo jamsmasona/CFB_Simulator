@@ -95,6 +95,7 @@ CFB_TEAMS = sorted([
     "Vanderbilt", "Virginia", "Virginia Tech", "Washington", "Washington State",
     "West Virginia", "Wisconsin"
 ])
+CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 
 API_KEY = st.secrets.get("CFBD_API_KEY", "")
 CFBD_BASE = "https://api.collegefootballdata.com"
@@ -102,7 +103,7 @@ TIMEOUT = 6
 
 
 @st.cache_data(ttl=86400)
-def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
+def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
     headers = {"Authorization": f"Bearer {API_KEY}"}
 
     # 1. Fetch SP+ Ratings as Bayesian Preseason Priors
@@ -118,7 +119,7 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
     except Exception:
         pass
 
-    # 2. Pull Play-by-Play Data with Garbage Time Filtering
+    # 2. Pull Play-by-Play Data with Garbage Time Filtering (>95% or <5% Win Prob filtered out)
     plays = []
     max_w = min(target_week, 15)
     for w in range(1, max_w + 1):
@@ -139,6 +140,7 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
         if not df.empty and "play_type" in df.columns:
             core = df[df["play_type"].isin(["Rush", "Pass Reception", "Passing"])].copy()
             
+            # Filter out true garbage time if win_probability is present
             if "win_probability" in core.columns:
                 core = core[(core["win_probability"] >= 0.05) & (core["win_probability"] <= 0.95)]
 
@@ -188,22 +190,22 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2025):
                         "success": success_rate,
                     }
 
-    # Ensure fallback covers teams missing from live PBP feeds using their SP+ rating or tiered defaults
-    for t in CFB_TEAMS:
+    # Fallback for missing teams
+    for t, p in sp_priors.items():
         if t not in team_profiles:
-            prior_val = sp_priors.get(t, 12.0)
             team_profiles[t] = {
-                "power": prior_val,
-                "o_epa": 0.12 if prior_val > 15 else 0.05,
-                "d_epa": 0.08 if prior_val > 15 else 0.15,
-                "explosiveness": 1.4 if prior_val > 15 else 1.0,
-                "success": 0.44 if prior_val > 15 else 0.38,
+                "power": p,
+                "o_epa": 0.10,
+                "d_epa": 0.10,
+                "explosiveness": 1.2,
+                "success": 0.40,
             }
 
     return team_profiles
 
 
 def fetch_weather_adjustment(home, away):
+    # Expanded weather parameter dictionary hook
     return {
         "wind_adj": -0.05,
         "rain_adj": -0.08,
@@ -212,6 +214,7 @@ def fetch_weather_adjustment(home, away):
 
 
 def personnel_adjustments(team):
+    # Dynamic roster depth / injury tracking stub
     return {
         "qb_adj": 0.15,
         "wr1_adj": 0.05,
@@ -259,9 +262,7 @@ with st.sidebar:
 
     st.markdown("---")
     sidebar_week = st.slider("Active Season Week", min_value=1, max_value=15, value=6)
-    
-    active_year = st.selectbox("Data Season Year", [2025, 2024], index=0)
-    raw_profiles_sidebar = fetch_opponent_adjusted_profiles(sidebar_week, year=active_year)
+    raw_profiles_sidebar = fetch_opponent_adjusted_profiles(sidebar_week)
 
     if raw_profiles_sidebar:
         sorted_profiles = sorted(raw_profiles_sidebar.items(), key=lambda x: x[1]['power'], reverse=True)[:25]
@@ -331,10 +332,10 @@ else:
 
         if st.button("🚀 Execute 25,000 Correlated Simulation", use_container_width=True):
             with st.spinner("Executing 25,000 multivariate Monte Carlo vectors with garbage-time filtering..."):
-                raw_profiles = fetch_opponent_adjusted_profiles(current_week, year=active_year)
+                raw_profiles = fetch_opponent_adjusted_profiles(current_week)
                 weather = fetch_weather_adjustment(team_a, team_b)
 
-                default_raw = {"power": 12.0, "o_epa": 0.08, "d_epa": 0.1, "explosiveness": 1.0, "success": 0.40}
+                default_raw = {"power": 15.0, "o_epa": 0.1, "d_epa": 0.1, "explosiveness": 1.0, "success": 0.40}
                 r_a = raw_profiles.get(team_a, default_raw)
                 r_b = raw_profiles.get(team_b, default_raw)
 
@@ -354,6 +355,7 @@ else:
                 base_spread = 18.0 * float(np.tanh(raw_diff / 20.0))
 
                 NUM_SIMS = 25000
+                # Correlated multivariate normal distribution sampling
                 cov = np.array([
                     [1.0, 0.62, 0.55],
                     [0.62, 1.0, 0.48],
@@ -377,6 +379,7 @@ else:
                 display_spread_a = -mean_margin
                 display_spread_b = mean_margin
 
+                # Yardage matrices
                 base_yds_a = 350 + (p_a["power"] * 3.5) + (simulated_margins * 1.5)
                 base_yds_b = 350 + (p_b["power"] * 3.5) - (simulated_margins * 1.5)
                 
@@ -446,4 +449,3 @@ else:
                     st.markdown(f"<div class='rival-line'>Projected Passing Yards: <span class='rival-val'>{mean_pass_yds_b} yds</span></div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='rival-line'>Projected Rushing Yards: <span class='rival-val'>{mean_rush_yds_b} yds</span></div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='rival-line'>Total Projected Yards: <span class='rival-val'>{mean_total_yds_b} yds</span></div>", unsafe_allow_html=True)
-                    
