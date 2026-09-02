@@ -171,14 +171,14 @@ CFB_TEAMS = sorted([
 ])
 CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 
-API_KEY = st.secrets["CFBD_API_KEY"]
+API_KEY = st.secrets.get("CFBD_API_KEY", "")
 
 
 # Cached API Fetch Function for ALL SP+ Ratings
 @st.cache_data(ttl=86400)
 def fetch_all_sp_ratings():
     url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+    headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
     
     ratings_dict = {}
     try:
@@ -228,10 +228,11 @@ with st.sidebar:
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
-if not st.session_state["authenticated"]:
+app_password = st.secrets.get("APP_PASSWORD", "")
+if app_password and not st.session_state["authenticated"]:
     st.title("🏈 2026 College Football Game Predictor")
     pwd = st.text_input("Enter Access Password:", type="password")
-    if pwd == st.secrets["APP_PASSWORD"]:
+    if pwd == app_password:
         st.session_state["authenticated"] = True
         st.rerun()
     elif pwd != "":
@@ -242,11 +243,11 @@ else:
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         team_a = st.selectbox(
-            "Home Team", CFB_TEAMS, index=CFB_TEAMS.index("Oregon")
+            "Home Team", CFB_TEAMS, index=CFB_TEAMS.index("Oregon") if "Oregon" in CFB_TEAMS else 0
         )
     with col2:
         team_b = st.selectbox(
-            "Away Team", CFB_TEAMS, index=CFB_TEAMS.index("Boise State")
+            "Away Team", CFB_TEAMS, index=CFB_TEAMS.index("Boise State") if "Boise State" in CFB_TEAMS else 1
         )
     with col3:
         st.write("")
@@ -256,8 +257,7 @@ else:
 
     if same_team_selected:
         st.error(
-            "⚠️ Invalid Matchup: Please select two different teams to run a valid"
-            " simulation."
+            "⚠️ Invalid Matchup: Please select two different teams to run a valid simulation."
         )
         st.button(
             "🎲 Run 10,000 Monte Carlo Simulations",
@@ -270,25 +270,54 @@ else:
                 p_a = fetch_advanced_profile(team_a)
                 p_b = fetch_advanced_profile(team_b)
 
-            hfa = 0.0 if is_neutral else 2.5
+                hfa = 0.0 if is_neutral else 2.5
+                n_sims = 10000
 
-            # Blending SP+ differential with simulated/actual stat differentials based on season week
-            sp_diff = p_a["sp"] - p_b["sp"]
-            
-            # Simulated stat differential placeholder (can be swapped with real box score averages once games are played)
-            stat_diff = (p_a["sp"] * 1.1) - (p_b["sp"] * 0.9) 
-            
-            blended_diff = (sp_diff * sp_weight) + (stat_diff * stat_weight)
-            raw_diff = blended_diff + hfa
-            
-            raw_diff = (p_a["sp"] - p_b["sp"]) + hfa
-            max_cap = 17.0
-            base_spread = max_cap * float(np.tanh(raw_diff / 18.0))
+                # Monte Carlo Engine Calculations
+                expected_diff = (p_a["sp"] - p_b["sp"]) + hfa
+                std_dev = 13.8
 
+                base_scoring_mean = 27.5
+                score_a_mean = base_scoring_mean + (expected_diff / 2)
+                score_b_mean = base_scoring_mean - (expected_diff / 2)
 
-                    f" ({win_prob_b*100:.1f}%)"
-                ),
-            )
+                sim_scores_a = np.random.normal(loc=max(7, score_a_mean), scale=10.0, size=n_sims)
+                sim_scores_b = np.random.normal(loc=max(7, score_b_mean), scale=10.0, size=n_sims)
+
+                mean_score_a = np.mean(sim_scores_a)
+                mean_score_b = np.mean(sim_scores_b)
+
+                simulated_margins = sim_scores_a - sim_scores_b
+
+                wins_a = np.sum(simulated_margins > 0)
+                wins_b = np.sum(simulated_margins < 0)
+                ties = n_sims - wins_a - wins_b
+
+                win_prob_a = (wins_a + (ties / 2)) / n_sims
+                win_prob_b = (wins_b + (ties / 2)) / n_sims
+
+                mean_margin = np.mean(simulated_margins)
+                favored_team = team_a if mean_margin > 0 else team_b
+
+                total_scores = sim_scores_a + sim_scores_b
+                total_baseline = np.mean(total_scores)
+
+                one_possession = np.mean(np.abs(simulated_margins) <= 8) * 100
+                blowouts_a = np.mean(simulated_margins >= 14) * 100
+                blowouts_b = np.mean(simulated_margins <= -14) * 100
+
+                sim_total_yds_a = np.random.normal(loc=400 + (p_a["sp"] * 3), scale=60, size=n_sims)
+                sim_total_yds_b = np.random.normal(loc=400 + (p_b["sp"] * 3), scale=60, size=n_sims)
+                sim_pass_yds_a = sim_total_yds_a * 0.65
+                sim_rush_yds_a = sim_total_yds_a * 0.35
+                sim_pass_yds_b = sim_total_yds_b * 0.65
+                sim_rush_yds_b = sim_total_yds_b * 0.35
+
+            res_col1, res_col2 = st.columns(2)
+            with res_col1:
+                st.metric(label=f"{team_a} Win Probability", value=f"{win_prob_a*100:.1f}%")
+            with res_col2:
+                st.metric(label=f"{team_b} Win Probability", value=f"{win_prob_b*100:.1f}%")
 
             st.divider()
             st.subheader("📈 Projected Point Margin Distribution")
@@ -329,7 +358,6 @@ else:
             st.divider()
             st.subheader("🏈 Simulated Average Game Box Score")
 
-
             def calculate_scoring_breakdown(score):
                 tds = int(score // 7)
                 remainder = int(score % 7)
@@ -345,7 +373,6 @@ else:
                 pass_tds = max(0, min(tds, int(round(tds * 0.55))))
                 rush_tds = tds - pass_tds
                 return pass_tds, rush_tds, fgs
-
 
             pass_tds_a, rush_tds_a, fgs_a = calculate_scoring_breakdown(mean_score_a)
             pass_tds_b, rush_tds_b, fgs_b = calculate_scoring_breakdown(mean_score_b)
@@ -369,38 +396,31 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span"
-                    f" class='stat-val'>{first_downs_a}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span"
-                    f" class='stat-val'>{total_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span"
-                    f" class='stat-val'>{pass_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span"
-                    f" class='stat-val'>{rush_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span"
-                    f" class='stat-val'>{pass_tds_a}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span"
-                    f" class='stat-val'>{rush_tds_a}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span"
-                    f" class='stat-val'>{fgs_a}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
 
@@ -410,40 +430,44 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span"
-                    f" class='stat-val'>{first_downs_b}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span"
-                    f" class='stat-val'>{total_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span"
-                    f" class='stat-val'>{pass_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span"
-                    f" class='stat-val'>{rush_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span"
-                    f" class='stat-val'>{pass_tds_b}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span"
-                    f" class='stat-val'>{rush_tds_b}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span"
-                    f" class='stat-val'>{fgs_b}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
+
+            # Log to history
+            st.session_state.history.insert(0, {
+                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Home Team": team_a,
+                "Away Team": team_b,
+                "Favored": favored_team,
+                "Spread": f"{abs(mean_margin):.1f}",
+                f"{team_a} Win %": f"{win_prob_a*100:.1f}%",
+                f"{team_b} Win %": f"{win_prob_b*100:.1f}%"
+            })
 
     st.divider()
     st.subheader("🕒 Recent Simulation History")
