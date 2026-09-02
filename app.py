@@ -285,7 +285,7 @@ else:
             max_cap = 17.0
             base_spread = max_cap * float(np.tanh(raw_diff / 18.0))
 
-@@ -114,3 +363,166 @@
+
                     f" ({win_prob_b*100:.1f}%)"
                 ),
             )
