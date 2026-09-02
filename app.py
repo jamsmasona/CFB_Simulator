@@ -320,6 +320,29 @@ else:
 
             total_baseline = 51.0 + ((p_a["power"] + p_b["power"]) * 0.10) + ((p_a["explosiveness"] + p_b["explosiveness"]) * 2.0)
             simulated_totals = np.random.normal(loc=total_baseline, scale=7.5, size=NUM_SIMS)
+            # Inside the simulation loop execution block:
+                base_yds_a = 350 + (p_a["power"] * 3.5) + (simulated_margins * 1.5)
+                base_yds_b = 350 + (p_b["power"] * 3.5) - (simulated_margins * 1.5)
+                
+                # Generate 25,000 randomized yardage outcomes per team using explosiveness variance
+                sim_total_yds_a = np.maximum(
+                    150, np.random.normal(loc=base_yds_a, scale=45.0 + (p_a["explosiveness"] * 5), size=NUM_SIMS)
+                )
+                sim_total_yds_b = np.maximum(
+                    150, np.random.normal(loc=base_yds_b, scale=45.0 + (p_b["explosiveness"] * 5), size=NUM_SIMS)
+                )
+                
+                # Split into passing and rushing using team efficiency ratios
+                sim_pass_yds_a = sim_total_yds_a * 0.62
+                sim_rush_yds_a = sim_total_yds_a * 0.38
+                sim_pass_yds_b = sim_total_yds_b * 0.62
+                sim_rush_yds_b = sim_total_yds_b * 0.38
+                
+                # Then take the mean across all 25,000 sims for your box score
+            mean_pass_yds_a = int(np.mean(sim_pass_yds_a))
+            mean_rush_yds_a = int(np.mean(sim_rush_yds_a))
+            mean_pass_yds_b = int(np.mean(sim_pass_yds_b))
+            mean_rush_yds_b = int(np.mean(sim_rush_yds_b))
 
             sim_scores_a = np.maximum(3, np.round((simulated_totals / 2) + (simulated_margins / 2)))
             sim_scores_b = np.maximum(3, np.round((simulated_totals / 2) - (simulated_margins / 2)))
