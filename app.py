@@ -273,16 +273,15 @@ else:
                 hfa = 0.0 if is_neutral else 2.5
                 n_sims = 10000
 
-                # Monte Carlo Engine Calculations
+                # Fully Simulated Monte Carlo Engine Arrays
                 expected_diff = (p_a["sp"] - p_b["sp"]) + hfa
-                std_dev = 13.8
-
                 base_scoring_mean = 27.5
                 score_a_mean = base_scoring_mean + (expected_diff / 2)
                 score_b_mean = base_scoring_mean - (expected_diff / 2)
 
-                sim_scores_a = np.random.normal(loc=max(7, score_a_mean), scale=10.0, size=n_sims)
-                sim_scores_b = np.random.normal(loc=max(7, score_b_mean), scale=10.0, size=n_sims)
+                # Generate 10,000 independent game score outcomes
+                sim_scores_a = np.random.normal(loc=max(3, score_a_mean), scale=10.0, size=n_sims)
+                sim_scores_b = np.random.normal(loc=max(3, score_b_mean), scale=10.0, size=n_sims)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
@@ -306,12 +305,27 @@ else:
                 blowouts_a = np.mean(simulated_margins >= 14) * 100
                 blowouts_b = np.mean(simulated_margins <= -14) * 100
 
-                sim_total_yds_a = np.random.normal(loc=400 + (p_a["sp"] * 3), scale=60, size=n_sims)
-                sim_total_yds_b = np.random.normal(loc=400 + (p_b["sp"] * 3), scale=60, size=n_sims)
-                sim_pass_yds_a = sim_total_yds_a * 0.65
-                sim_rush_yds_a = sim_total_yds_a * 0.35
-                sim_pass_yds_b = sim_total_yds_b * 0.65
-                sim_rush_yds_b = sim_total_yds_b * 0.35
+                # Fully simulated box score metrics derived across the distribution of all 10,000 runs
+                sim_total_yds_a = np.clip(np.random.normal(loc=380 + (sim_scores_a * 3.5), scale=50, size=n_sims), 150, 750)
+                sim_total_yds_b = np.clip(np.random.normal(loc=380 + (sim_scores_b * 3.5), scale=50, size=n_sims), 150, 750)
+                
+                sim_pass_yds_a = sim_total_yds_a * np.random.normal(0.64, 0.05, size=n_sims)
+                sim_rush_yds_a = sim_total_yds_a - sim_pass_yds_a
+                
+                sim_pass_yds_b = sim_total_yds_b * np.random.normal(0.64, 0.05, size=n_sims)
+                sim_rush_yds_b = sim_total_yds_b - sim_pass_yds_b
+
+                sim_pass_tds_a = np.clip(np.round(sim_scores_a * np.random.uniform(0.45, 0.65, size=n_sims) / 7), 0, 6)
+                sim_rush_tds_a = np.clip(np.round((sim_scores_a / 7) - sim_pass_tds_a), 0, 5)
+                
+                sim_pass_tds_b = np.clip(np.round(sim_scores_b * np.random.uniform(0.45, 0.65, size=n_sims) / 7), 0, 6)
+                sim_rush_tds_b = np.clip(np.round((sim_scores_b / 7) - sim_pass_tds_b), 0, 5)
+
+                sim_fgs_a = np.clip(np.round((sim_scores_a - ((sim_pass_tds_a + sim_rush_tds_a) * 7)) / 3), 0, 5)
+                sim_fgs_b = np.clip(np.round((sim_scores_b - ((sim_pass_tds_b + sim_rush_tds_b) * 7)) / 3), 0, 5)
+
+                sim_first_downs_a = np.round(sim_total_yds_a / 17.5)
+                sim_first_downs_b = np.round(sim_total_yds_b / 17.5)
 
             res_col1, res_col2 = st.columns(2)
             with res_col1:
@@ -371,36 +385,22 @@ else:
             st.divider()
             st.subheader("🏈 Simulated Average Game Box Score")
 
-            def calculate_scoring_breakdown(score):
-                tds = int(score // 7)
-                remainder = int(score % 7)
-                fgs = 0
-                if remainder == 3:
-                    fgs = 1
-                elif remainder == 6:
-                    fgs = 2
-                elif remainder in [1, 2, 4, 5] and tds > 0:
-                    tds -= 1
-                    fgs = int((score - (tds * 7)) // 3)
+            # Fully simulated average values across the 10,000 runs
+            avg_first_downs_a = int(np.mean(sim_first_downs_a))
+            avg_total_yds_a = int(np.mean(sim_total_yds_a))
+            avg_pass_yds_a = int(np.mean(sim_pass_yds_a))
+            avg_rush_yds_a = int(np.mean(sim_rush_yds_a))
+            avg_pass_tds_a = round(np.mean(sim_pass_tds_a), 1)
+            avg_rush_tds_a = round(np.mean(sim_rush_tds_a), 1)
+            avg_fgs_a = round(np.mean(sim_fgs_a), 1)
 
-                pass_tds = max(0, min(tds, int(round(tds * 0.55))))
-                rush_tds = tds - pass_tds
-                return pass_tds, rush_tds, fgs
-
-            pass_tds_a, rush_tds_a, fgs_a = calculate_scoring_breakdown(mean_score_a)
-            pass_tds_b, rush_tds_b, fgs_b = calculate_scoring_breakdown(mean_score_b)
-
-            total_yds_a = int(np.mean(sim_total_yds_a))
-            total_yds_b = int(np.mean(sim_total_yds_b))
-
-            pass_yds_a = int(np.mean(sim_pass_yds_a))
-            rush_yds_a = int(np.mean(sim_rush_yds_a))
-
-            pass_yds_b = int(np.mean(sim_pass_yds_b))
-            rush_yds_b = int(np.mean(sim_rush_yds_b))
-
-            first_downs_a = round(total_yds_a / 18.0)
-            first_downs_b = round(total_yds_b / 18.0)
+            avg_first_downs_b = int(np.mean(sim_first_downs_b))
+            avg_total_yds_b = int(np.mean(sim_total_yds_b))
+            avg_pass_yds_b = int(np.mean(sim_pass_yds_b))
+            avg_rush_yds_b = int(np.mean(sim_rush_yds_b))
+            avg_pass_tds_b = round(np.mean(sim_pass_tds_b), 1)
+            avg_rush_tds_b = round(np.mean(sim_rush_tds_b), 1)
+            avg_fgs_b = round(np.mean(sim_fgs_b), 1)
 
             box_col1, box_col2 = st.columns(2)
             with box_col1:
@@ -409,31 +409,31 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_a}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_a}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_a}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_a}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
 
@@ -443,31 +443,31 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_b}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{avg_first_downs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{avg_total_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{avg_pass_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{avg_rush_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_b}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{avg_pass_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_b}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{avg_rush_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_b}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{avg_fgs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
 
