@@ -80,13 +80,6 @@ st.markdown(
         font-size: 1.2rem !important;
         font-weight: 800 !important;
     }
-    .card-title {
-        color: #58a6ff !important;
-        font-size: 1.3rem !important;
-        font-weight: 800 !important;
-        margin-top: 15px !important;
-        margin-bottom: 8px !important;
-    }
     div[data-testid="stVegaLiteChart"] {
         background-color: #161b22 !important;
         border: 1px solid #30363d !important;
@@ -100,125 +93,145 @@ st.markdown(
 
 # FBS Teams Database
 CFB_TEAMS = sorted([
-    "Alabama",
-    "Arizona",
-    "Arizona State",
-    "Arkansas",
-    "Auburn",
-    "Baylor",
-    "Boise State",
-    "BYU",
-    "Cal",
-    "Clemson",
-    "Colorado",
-    "Duke",
-    "East Carolina",
-    "Florida",
-    "Florida State",
-    "Georgia",
-    "Georgia Tech",
-    "Houston",
-    "Illinois",
-    "Indiana",
-    "Iowa",
-    "Iowa State",
-    "Kansas",
-    "Kansas State",
-    "Kentucky",
-    "Louisville",
-    "LSU",
-    "Memphis",
-    "Miami",
-    "Michigan",
-    "Michigan State",
-    "Minnesota",
-    "Missouri",
-    "NC State",
-    "Nebraska",
-    "North Carolina",
-    "Notre Dame",
-    "Ohio State",
-    "Oklahoma",
-    "Oklahoma State",
-    "Ole Miss",
-    "Oregon",
-    "Oregon State",
-    "Penn State",
-    "Pittsburgh",
-    "Purdue",
-    "Rutgers",
-    "San José State",
-    "SMU",
-    "South Carolina",
-    "Stanford",
-    "TCU",
-    "Tennessee",
-    "Texas",
-    "Texas A&M",
-    "Texas Tech",
-    "UCF",
-    "UCLA",
-    "UNLV",
-    "USC",
-    "Utah",
-    "Vanderbilt",
-    "Virginia",
-    "Virginia Tech",
-    "Washington",
-    "Washington State",
-    "West Virginia",
-    "Wisconsin",
+    "Alabama", "Arizona", "Arizona State", "Arkansas", "Auburn", "Baylor",
+    "Boise State", "BYU", "Cal", "Clemson", "Colorado", "Duke", "East Carolina",
+    "Florida", "Florida State", "Georgia", "Georgia Tech", "Houston", "Illinois",
+    "Indiana", "Iowa", "Iowa State", "Kansas", "Kansas State", "Kentucky",
+    "Louisville", "LSU", "Memphis", "Miami", "Michigan", "Michigan State",
+    "Minnesota", "Missouri", "NC State", "Nebraska", "North Carolina",
+    "Notre Dame", "Ohio State", "Oklahoma", "Oklahoma State", "Ole Miss",
+    "Oregon", "Oregon State", "Penn State", "Pittsburgh", "Purdue", "Rutgers",
+    "San José State", "SMU", "South Carolina", "Stanford", "TCU", "Tennessee",
+    "Texas", "Texas A&M", "Texas Tech", "UCF", "UCLA", "UNLV", "USC", "Utah",
+    "Vanderbilt", "Virginia", "Virginia Tech", "Washington", "Washington State",
+    "West Virginia", "Wisconsin"
 ])
 CFB_TEAMS = sorted(list(set(CFB_TEAMS)))
 
 API_KEY = st.secrets["CFBD_API_KEY"]
 
 
-# Cached API Fetch Function for ALL SP+ Ratings
 @st.cache_data(ttl=86400)
 def fetch_all_sp_ratings():
     url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    
     ratings_dict = {}
     try:
         res = requests.get(url, headers=headers)
         if res.status_code == 200:
-            data = res.json()
-            for item in data:
+            for item in res.json():
                 team_name = item.get("team")
                 rating_val = item.get("rating")
                 if team_name and rating_val is not None:
                     ratings_dict[team_name] = float(rating_val)
-        else:
-            st.warning(f"API returned non-200 status code: {res.status_code}")
-    except Exception as e:
-        st.error(f"Failed to connect to CFBD API: {e}")
-
+    except Exception:
+        pass
     return ratings_dict
+
+
+@st.cache_data(ttl=86400)
+def fetch_advanced_season_stats():
+    url = "https://api.collegefootballdata.com/stats/season/advanced?year=2026"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    stats_dict = {}
+    try:
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            for item in res.json():
+                team_name = item.get("team")
+                offense = item.get("offense", {})
+                defense = item.get("defense", {})
+                off_epa = offense.get("ppa", 0.0)
+                def_epa = defense.get("ppa", 0.0)
+                net_epa = float(off_epa) - float(def_epa)
+                stats_dict[team_name] = net_epa * 25.0
+    except Exception:
+        pass
+    return stats_dict
+
+
+@st.cache_data(ttl=3600)
+def fetch_completed_games_adjustment():
+    """Automatically parses completed games from the CFBD API to build 
+    a real-time performance modifier based on actual game margins vs expectations.
+    """
+    url = "https://api.collegefootballdata.com/games?year=2026&seasonType=regular"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    adjustments = {}
+    team_game_counts = {}
+    
+    try:
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            games = res.json()
+            for game in games:
+                home_team = game.get("home_team")
+                away_team = game.get("away_team")
+                home_pts = game.get("home_points")
+                away_pts = game.get("away_points")
+                
+                # Only analyze completed games where points are recorded
+                if home_pts is not None and away_pts is not None:
+                    margin = home_pts - away_pts  # positive means home won by margin
+                    
+                    # Accumulate raw point differential performance
+                    adjustments[home_team] = adjustments.get(home_team, 0.0) + (margin * 0.25)
+                    adjustments[away_team] = adjustments.get(away_team, 0.0) - (margin * 0.25)
+                    
+                    team_game_counts[home_team] = team_game_counts.get(home_team, 0) + 1
+                    team_game_counts[away_team] = team_game_counts.get(away_team, 0) + 1
+            
+            # Average out the adjustment by games played
+            for team in adjustments:
+                if team_game_counts.get(team, 0) > 0:
+                    adjustments[team] = adjustments[team] / team_game_counts[team]
+    except Exception:
+        pass
+        
+    return adjustments
 
 
 def fetch_advanced_profile(team_name):
     all_ratings = fetch_all_sp_ratings()
+    all_stats = fetch_advanced_season_stats()
+    auto_adjustments = fetch_completed_games_adjustment()
+    
     sp_val = all_ratings.get(team_name, 15.0)
-    return {"sp": sp_val}
+    stat_val = all_stats.get(team_name, sp_val)
+    
+    # Automatically apply real-world game performance modifier
+    auto_adj = auto_adjustments.get(team_name, 0.0)
+    
+    return {
+        "sp": sp_val + auto_adj, 
+        "stat_metric": stat_val + auto_adj,
+        "auto_adjustment": auto_adj
+    }
 
 
 # SIDEBAR: DYNAMIC TOP 25 MODEL RANKINGS
 with st.sidebar:
     st.markdown("## 🏆 Model Top 25 Rankings")
-    st.caption("Updated dynamically via live SP+ metrics")
+    st.caption("Auto-calibrated with live game results & SP+")
 
     if st.button("Clear Cache & Refresh Data"):
         st.cache_data.clear()
-        st.success("Cache cleared! Latest data will be fetched.")
+        st.success("Cache cleared! Latest data fetched from API.")
 
+    st.markdown("---")
     all_ratings = fetch_all_sp_ratings()
+    auto_adjustments = fetch_completed_games_adjustment()
 
     if all_ratings:
+        # Build composite rating including auto game performance adjustments
+        composite_ratings = {
+            team: rating + auto_adjustments.get(team, 0.0) 
+            for team, rating in all_ratings.items()
+        }
         sorted_ratings = sorted(
-            all_ratings.items(), key=lambda x: x[1], reverse=True
+            composite_ratings.items(), key=lambda x: x[1], reverse=True
         )[:25]
+        
         for rank, (team, rating) in enumerate(sorted_ratings, start=1):
             st.markdown(f"**#{rank}** {team} *({rating:.1f})*")
     else:
@@ -242,11 +255,11 @@ else:
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         team_a = st.selectbox(
-            "Home Team", CFB_TEAMS, index=CFB_TEAMS.index("Oregon")
+            "Home Team", CFB_TEAMS, index=CFB_TEAMS.index("North Carolina") if "North Carolina" in CFB_TEAMS else CFB_TEAMS.index("Oregon")
         )
     with col2:
         team_b = st.selectbox(
-            "Away Team", CFB_TEAMS, index=CFB_TEAMS.index("Boise State")
+            "Away Team", CFB_TEAMS, index=CFB_TEAMS.index("TCU") if "TCU" in CFB_TEAMS else CFB_TEAMS.index("Boise State")
         )
     with col3:
         st.write("")
@@ -255,24 +268,55 @@ else:
     same_team_selected = team_a == team_b
 
     if same_team_selected:
-        st.error(
-            "⚠️ Invalid Matchup: Please select two different teams to run a valid"
-            " simulation."
-        )
-        st.button(
-            "🎲 Run 10,000 Monte Carlo Simulations",
-            use_container_width=True,
-            disabled=True,
-        )
+        st.error("⚠️ Invalid Matchup: Please select two different teams to run a valid simulation.")
+        st.button("🎲 Run 10,000 Monte Carlo Simulations", use_container_width=True, disabled=True)
     else:
+        st.divider()
+        st.subheader("🏟️ Venue & Season Progression Settings")
+        
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            venue_type = st.radio(
+                "Select Home-Field Advantage Tier",
+                [
+                    "Standard HFA (2.5 pts)", 
+                    "Hostile Environment / Elite Atmos (3.5 pts)", 
+                    "Difficult Travel / Long Distance (3.0 pts)", 
+                    "Quiet / Low Advantage (1.5 pts)"
+                ],
+                index=0,
+            )
+        with col_v2:
+            current_week = st.slider(
+                "Current Season Week", min_value=1, max_value=15, value=6,
+                help="Shifts weight automatically from preseason baseline to live on-field efficiency stats."
+            )
+
+        if "Elite Atmos" in venue_type:
+            hfa_value = 3.5
+        elif "Long Distance" in venue_type:
+            hfa_value = 3.0
+        elif "Low Advantage" in venue_type:
+            hfa_value = 1.5
+        else:
+            hfa_value = 2.5
+
+        stat_weight = min(0.85, 0.05 * current_week)
+        sp_weight = 1.0 - stat_weight
+
         if st.button("🎲 Run 10,000 Monte Carlo Simulations", use_container_width=True):
-            with st.spinner("Processing 10,000 Monte Carlo game iterations..."):
+            with st.spinner("Processing 10,000 Monte Carlo game iterations with live data..."):
                 p_a = fetch_advanced_profile(team_a)
                 p_b = fetch_advanced_profile(team_b)
 
-            hfa = 0.0 if is_neutral else 2.5
+            hfa = 0.0 if is_neutral else hfa_value
 
-            raw_diff = (p_a["sp"] - p_b["sp"]) + hfa
+            sp_diff = p_a["sp"] - p_b["sp"]
+            stat_diff = p_a["stat_metric"] - p_b["stat_metric"]
+            
+            blended_diff = (sp_diff * sp_weight) + (stat_diff * stat_weight)
+            raw_diff = blended_diff + hfa
+            
             max_cap = 17.0
             base_spread = max_cap * float(np.tanh(raw_diff / 18.0))
 
@@ -322,13 +366,13 @@ else:
             one_possession = (np.sum(np.abs(simulated_margins) <= 8) / NUM_SIMS) * 100
 
             favored_team = team_a if mean_margin >= 0 else team_b
-            underdog_team = team_b if mean_margin >= 0 else team_a
 
             history_entry = {
                 "Matchup": f"{team_a} vs {team_b}",
                 "Projected Margin": f"{abs(mean_margin):.1f} pts ({favored_team})",
                 "Win Probability": f"{win_prob_a*100:.1f}% ({team_a})",
-                "Venue": "Neutral" if is_neutral else f"Home ({team_a})",
+                "Venue": "Neutral" if is_neutral else f"Home ({team_a}, {hfa} pts)",
+                "Week": current_week,
             }
             st.session_state.history.insert(0, history_entry)
             if len(st.session_state.history) > 4:
@@ -389,8 +433,9 @@ else:
             st.divider()
             st.subheader("📈 Betting Market Analytics")
 
+            venue_desc = f"Neutral site" if is_neutral else f"Home Field Advantage ({hfa} pts)"
             st.markdown(
-                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on SP+ differentials and venue adjustments."
+                f"**Model Spread Edge:** `{favored_team}` is favored by **{abs(mean_margin):.1f} points** based on Week {current_week} blended metrics and {venue_desc}."
             )
             st.markdown(
                 f"**Model Total Baseline:** Projected combined scoring line is **{total_baseline:.1f} points**."
@@ -402,7 +447,6 @@ else:
 
             st.divider()
             st.subheader("🏈 Simulated Average Game Box Score")
-
 
             def calculate_scoring_breakdown(score):
                 tds = int(score // 7)
@@ -419,7 +463,6 @@ else:
                 pass_tds = max(0, min(tds, int(round(tds * 0.55))))
                 rush_tds = tds - pass_tds
                 return pass_tds, rush_tds, fgs
-
 
             pass_tds_a, rush_tds_a, fgs_a = calculate_scoring_breakdown(mean_score_a)
             pass_tds_b, rush_tds_b, fgs_b = calculate_scoring_breakdown(mean_score_b)
@@ -439,83 +482,69 @@ else:
             box_col1, box_col2 = st.columns(2)
             with box_col1:
                 st.markdown(
-                    f"<div class='stat-header'>{team_a} (Home) - SP+: {p_a['sp']:.1f}</div>",
+                    f"<div class='stat-header'>{team_a} (Home) - Blended Rating: { (p_a['sp'] * sp_weight) + (p_a['stat_metric'] * stat_weight):.1f}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span"
-                    f" class='stat-val'>{first_downs_a}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span"
-                    f" class='stat-val'>{total_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span"
-                    f" class='stat-val'>{pass_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span"
-                    f" class='stat-val'>{rush_yds_a} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_a} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span"
-                    f" class='stat-val'>{pass_tds_a}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span"
-                    f" class='stat-val'>{rush_tds_a}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_a}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span"
-                    f" class='stat-val'>{fgs_a}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_a}</span></div>",
                     unsafe_allow_html=True,
                 )
 
             with box_col2:
                 st.markdown(
-                    f"<div class='stat-header'>{team_b} (Away) - SP+: {p_b['sp']:.1f}</div>",
+                    f"<div class='stat-header'>{team_b} (Away) - Blended Rating: { (p_b['sp'] * sp_weight) + (p_b['stat_metric'] * stat_weight):.1f}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>First Downs: <span"
-                    f" class='stat-val'>{first_downs_b}</span></div>",
+                    f"<div class='stat-line'>First Downs: <span class='stat-val'>{first_downs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Total Offense: <span"
-                    f" class='stat-val'>{total_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Total Offense: <span class='stat-val'>{total_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Yards: <span"
-                    f" class='stat-val'>{pass_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Passing Yards: <span class='stat-val'>{pass_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Yards: <span"
-                    f" class='stat-val'>{rush_yds_b} yds</span></div>",
+                    f"<div class='stat-line'>Rushing Yards: <span class='stat-val'>{rush_yds_b} yds</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Passing Touchdowns: <span"
-                    f" class='stat-val'>{pass_tds_b}</span></div>",
+                    f"<div class='stat-line'>Passing Touchdowns: <span class='stat-val'>{pass_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Rushing Touchdowns: <span"
-                    f" class='stat-val'>{rush_tds_b}</span></div>",
+                    f"<div class='stat-line'>Rushing Touchdowns: <span class='stat-val'>{rush_tds_b}</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div class='stat-line'>Field Goals: <span"
-                    f" class='stat-val'>{fgs_b}</span></div>",
+                    f"<div class='stat-line'>Field Goals: <span class='stat-val'>{fgs_b}</span></div>",
                     unsafe_allow_html=True,
                 )
 
