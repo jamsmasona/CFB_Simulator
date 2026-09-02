@@ -190,22 +190,22 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
                         "success": success_rate,
                     }
 
-    # Fallback for missing teams
-    for t, p in sp_priors.items():
+    # Fallback for any team missing from PBP data (uses SP+ prior directly)
+    for t in CFB_TEAMS:
         if t not in team_profiles:
+            p = sp_priors.get(t, 15.0)
             team_profiles[t] = {
                 "power": p,
-                "o_epa": 0.10,
-                "d_epa": 0.10,
-                "explosiveness": 1.2,
-                "success": 0.40,
+                "o_epa": 0.05,
+                "d_epa": 0.05,
+                "explosiveness": 1.0,
+                "success": 0.38,
             }
 
     return team_profiles
 
 
 def fetch_weather_adjustment(home, away):
-    # Expanded weather parameter dictionary hook
     return {
         "wind_adj": -0.05,
         "rain_adj": -0.08,
@@ -214,7 +214,6 @@ def fetch_weather_adjustment(home, away):
 
 
 def personnel_adjustments(team):
-    # Dynamic roster depth / injury tracking stub
     return {
         "qb_adj": 0.15,
         "wr1_adj": 0.05,
@@ -335,7 +334,7 @@ else:
                 raw_profiles = fetch_opponent_adjusted_profiles(current_week)
                 weather = fetch_weather_adjustment(team_a, team_b)
 
-                default_raw = {"power": 15.0, "o_epa": 0.1, "d_epa": 0.1, "explosiveness": 1.0, "success": 0.40}
+                default_raw = {"power": 15.0, "o_epa": 0.05, "d_epa": 0.05, "explosiveness": 1.0, "success": 0.38}
                 r_a = raw_profiles.get(team_a, default_raw)
                 r_b = raw_profiles.get(team_b, default_raw)
 
@@ -355,7 +354,6 @@ else:
                 base_spread = 18.0 * float(np.tanh(raw_diff / 20.0))
 
                 NUM_SIMS = 25000
-                # Correlated multivariate normal distribution sampling
                 cov = np.array([
                     [1.0, 0.62, 0.55],
                     [0.62, 1.0, 0.48],
@@ -379,7 +377,6 @@ else:
                 display_spread_a = -mean_margin
                 display_spread_b = mean_margin
 
-                # Yardage matrices
                 base_yds_a = 350 + (p_a["power"] * 3.5) + (simulated_margins * 1.5)
                 base_yds_b = 350 + (p_b["power"] * 3.5) - (simulated_margins * 1.5)
                 
