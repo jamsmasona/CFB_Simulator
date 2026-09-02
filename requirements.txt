@@ -2,4 +2,5 @@ streamlit
 requests
 pandas
 numpy
-scikit-learn
+altair
+
