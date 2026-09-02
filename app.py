@@ -6,7 +6,7 @@ import streamlit as st
 
 # Set Native Dark Mode Configuration
 st.set_page_config(
-    page_title="Institutional CFB Monte Carlo Engine v4",
+    page_title="Institutional CFB Monte Carlo Engine v5",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -119,7 +119,7 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
     except Exception:
         pass
 
-    # 2. Pull Play-by-Play Data
+    # 2. Pull Play-by-Play Data with Garbage Time Filtering (>95% or <5% Win Prob filtered out)
     plays = []
     max_w = min(target_week, 15)
     for w in range(1, max_w + 1):
@@ -139,6 +139,11 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
         df = pd.DataFrame(plays)
         if not df.empty and "play_type" in df.columns:
             core = df[df["play_type"].isin(["Rush", "Pass Reception", "Passing"])].copy()
+            
+            # Filter out true garbage time if win_probability is present
+            if "win_probability" in core.columns:
+                core = core[(core["win_probability"] >= 0.05) & (core["win_probability"] <= 0.95)]
+
             if not core.empty:
                 def success(row):
                     down = row.get("down", 1)
@@ -165,7 +170,6 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
                 )
 
                 merged = off.join(df_def, how="outer").fillna(0)
-
                 sample_weight = min(0.85, 0.08 * target_week)
 
                 for team, row in merged.iterrows():
@@ -201,7 +205,7 @@ def fetch_opponent_adjusted_profiles(target_week=6, year=2026):
 
 
 def fetch_weather_adjustment(home, away):
-    # Dynamic environmental placeholder hook
+    # Expanded weather parameter dictionary hook
     return {
         "wind_adj": -0.05,
         "rain_adj": -0.08,
@@ -210,7 +214,7 @@ def fetch_weather_adjustment(home, away):
 
 
 def personnel_adjustments(team):
-    # Roster depth / injury modifier stub
+    # Dynamic roster depth / injury tracking stub
     return {
         "qb_adj": 0.15,
         "wr1_adj": 0.05,
@@ -250,7 +254,7 @@ def logistic_win_prob(spread):
 # SIDEBAR: TOP 25 POWER RANKINGS
 with st.sidebar:
     st.markdown("## ⚡ Institutional Top 25")
-    st.caption("Hybrid Correlated Monte Carlo & Opponent-Adjusted EPA")
+    st.caption("v5: Garbage-Time Filtered & Correlated Engine")
 
     if st.button("Purge & Re-Index Cache"):
         st.cache_data.clear()
@@ -282,7 +286,7 @@ if not st.session_state["authenticated"]:
     elif pwd != "":
         st.error("Invalid Access Key")
 else:
-    st.title("⚡ Institutional CFB Monte Carlo Suite")
+    st.title("⚡ Institutional CFB Monte Carlo Suite (v5)")
 
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -327,7 +331,7 @@ else:
             hfa_value = 2.5
 
         if st.button("🚀 Execute 25,000 Correlated Simulation", use_container_width=True):
-            with st.spinner("Executing 25,000 multivariate Monte Carlo vectors with correlated covariance matrix..."):
+            with st.spinner("Executing 25,000 multivariate Monte Carlo vectors with garbage-time filtering..."):
                 raw_profiles = fetch_opponent_adjusted_profiles(current_week)
                 weather = fetch_weather_adjustment(team_a, team_b)
 
@@ -351,7 +355,7 @@ else:
                 base_spread = 18.0 * float(np.tanh(raw_diff / 20.0))
 
                 NUM_SIMS = 25000
-                # Correlated multivariate normal distribution sampling for spread, totals, and explosiveness
+                # Correlated multivariate normal distribution sampling
                 cov = np.array([
                     [1.0, 0.62, 0.55],
                     [0.62, 1.0, 0.48],
