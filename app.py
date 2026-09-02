@@ -127,14 +127,12 @@ def fetch_all_sp_ratings():
                 if team_name:
                     net_val = float(item.get("rating", 15.0))
                     
-                    # Safely handle offense whether it's a dict or a direct number
                     off_raw = item.get("offense", net_val)
                     if isinstance(off_raw, dict):
                         off_val = float(off_raw.get("rating", net_val))
                     else:
                         off_val = float(off_raw) if off_raw is not None else net_val
 
-                    # Safely handle defense whether it's a dict or a direct number
                     def_raw = item.get("defense", net_val)
                     if isinstance(def_raw, dict):
                         def_val = float(def_raw.get("rating", net_val))
@@ -223,7 +221,7 @@ else:
         )
     else:
         if st.button("🎲 Run 10,000 Monte Carlo Simulations", use_container_width=True):
-            with st.spinner("Processing unit-vs-unit Monte Carlo game iterations..."):
+            with st.spinner("Processing anchored Monte Carlo game iterations..."):
                 p_a = fetch_advanced_profile(team_a)
                 p_b = fetch_advanced_profile(team_b)
 
@@ -232,12 +230,14 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                # Scaled divergence math for proper blowouts and defensive suppression
-                score_a_mean = league_avg_scoring + (p_a["offense"] - p_b["defense"]) / 2.0 + (hfa / 2)
-                score_b_mean = league_avg_scoring + (p_b["offense"] - p_a["defense"]) / 2.0 - (hfa / 2)
+                net_diff_a = (p_a["net"] - p_b["net"]) + hfa
+                net_diff_b = -net_diff_a
 
-                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=12.5, size=n_sims), 0, 75)
-                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=12.5, size=n_sims), 0, 75)
+                score_a_mean = league_avg_scoring + (net_diff_a * 0.5)
+                score_b_mean = league_avg_scoring + (net_diff_b * 0.5)
+
+                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=8.5, size=n_sims), 0, 75)
+                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=8.5, size=n_sims), 0, 75)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
@@ -257,10 +257,6 @@ else:
                 total_scores = sim_scores_a + sim_scores_b
                 total_baseline = np.mean(total_scores)
 
-                one_possession = np.mean(np.abs(simulated_margins) <= 8) * 100
-                blowouts_a = np.mean(simulated_margins >= 14) * 100
-                blowouts_b = np.mean(simulated_margins <= -14) * 100
-
                 sim_total_yds_a = np.clip(np.random.normal(loc=350 + (sim_scores_a * 4.0), scale=40, size=n_sims), 150, 700)
                 sim_total_yds_b = np.clip(np.random.normal(loc=350 + (sim_scores_b * 4.0), scale=40, size=n_sims), 150, 700)
                 
@@ -274,12 +270,6 @@ else:
                 sim_pass_tds_b = np.clip(np.round(sim_scores_b * 0.5 / 7), 0, 5)
                 sim_rush_tds_b = np.clip(np.round((sim_scores_b / 7) - sim_pass_tds_b), 0, 4)
 
-                sim_fgs_a = np.clip(np.round((sim_scores_a - ((sim_pass_tds_a + sim_rush_tds_a) * 7)) / 3), 0, 4)
-                sim_fgs_b = np.clip(np.round((sim_scores_b - ((sim_pass_tds_b + sim_rush_tds_b) * 7)) / 3), 0, 4)
-
-                sim_first_downs_a = np.round(sim_total_yds_a / 18)
-                sim_first_downs_b = np.round(sim_total_yds_b / 18)
-
                 res_col1, res_col2 = st.columns(2)
                 with res_col1:
                     st.metric(label=f"{team_a} Win Probability", value=f"{win_prob_a*100:.1f}%")
@@ -290,7 +280,7 @@ else:
                 st.markdown(
                     f"""
                     <div style="background-color: #161b22; border: 2px solid #30363d; border-radius: 12px; padding: 20px; text-align: center; margin-top: 15px; margin-bottom: 15px; box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);">
-                        <div style="font-size: 1.1rem; font-weight: 700; color: #8b949e; margin-bottom: 5px;">SCOREBOARD PREDICTION (OFFENSE vs. DEFENSE MODEL)</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #8b949e; margin-bottom: 5px;">SCOREBOARD PREDICTION (POWER-ANCHORED MODEL)</div>
                         <div style="font-size: 2.4rem; font-weight: 900; color: #58a6ff; letter-spacing: 1px;">{team_a} {mean_score_a:.1f} — {team_b} {mean_score_b:.1f}</div>
                         <div style="font-size: 1.2rem; font-weight: 600; color: #f0f6fc; margin-top: 8px;">Spread: <span style="color: #58a6ff;">{spread_text}</span> &nbsp;|&nbsp; Total Line: <span style="color: #58a6ff;">{total_baseline:.1f}</span></div>
                     </div>
@@ -316,15 +306,6 @@ else:
                     x=f"Margin (← {team_b} Wins | {team_a} Wins →)",
                     y="Simulation Frequency Density",
                     use_container_width=True,
-                )
-
-                st.divider()
-                st.subheader("📈 Matchup Breakdown")
-                st.markdown(
-                    f"**{team_a} Offense vs. {team_b} Defense** | **{team_b} Offense vs. {team_a} Defense**"
-                )
-                st.markdown(
-                    f"Model total baseline reflects distinct unit clashes rather than flat team ratings, keeping low-scoring defensive slugfests properly suppressed."
                 )
 
                 st.divider()
