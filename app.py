@@ -230,14 +230,18 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                net_diff_a = (p_a["net"] - p_b["net"]) + hfa
-                net_diff_b = -net_diff_a
+                # Corrected Offense vs Defense calculation
+                off_weight = 0.45
+                def_weight = 0.45
 
-                score_a_mean = league_avg_scoring + (net_diff_a * 0.5)
-                score_b_mean = league_avg_scoring + (net_diff_b * 0.5)
+                score_a_mean = league_avg_scoring + (p_a["offense"] * off_weight) - (p_b["defense"] * def_weight) + (hfa * 0.6)
+                score_b_mean = league_avg_scoring + (p_b["offense"] * off_weight) - (p_a["defense"] * def_weight) - (hfa * 0.6)
 
-                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=8.5, size=n_sims), 0, 75)
-                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=8.5, size=n_sims), 0, 75)
+                score_a_mean = max(7.0, score_a_mean)
+                score_b_mean = max(7.0, score_b_mean)
+
+                sim_scores_a = np.clip(np.random.normal(loc=score_a_mean, scale=7.5, size=n_sims), 0, 75)
+                sim_scores_b = np.clip(np.random.normal(loc=score_b_mean, scale=7.5, size=n_sims), 0, 75)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
