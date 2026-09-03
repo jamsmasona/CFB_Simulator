@@ -230,16 +230,16 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                # Fixed Matchup Logic: SP+ defense ratings use negative numbers for elite defenses.
-                # Adding a negative defense rating correctly suppresses the opponent's expected score.
+                # Balanced Unit Matchups: Offense vs Defense with a dampened multiplier (0.22) 
+                # to prevent score inflation while properly reflecting unit mismatches.
                 matchup_diff_a = p_a["offense"] + p_b["defense"] + hfa
                 matchup_diff_b = p_b["offense"] + p_a["defense"] - hfa
 
-                score_a_mean = league_avg_scoring + (matchup_diff_a * 0.5)
-                score_b_mean = league_avg_scoring + (matchup_diff_b * 0.5)
+                score_a_mean = league_avg_scoring + (matchup_diff_a * 0.22)
+                score_b_mean = league_avg_scoring + (matchup_diff_b * 0.22)
 
-                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=8.5, size=n_sims), 0, 75)
-                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=8.5, size=n_sims), 0, 75)
+                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=6.5, size=n_sims), 0, 65)
+                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=6.5, size=n_sims), 0, 65)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
@@ -259,8 +259,8 @@ else:
                 total_scores = sim_scores_a + sim_scores_b
                 total_baseline = np.mean(total_scores)
 
-                sim_total_yds_a = np.clip(np.random.normal(loc=350 + (sim_scores_a * 4.0), scale=40, size=n_sims), 150, 700)
-                sim_total_yds_b = np.clip(np.random.normal(loc=350 + (sim_scores_b * 4.0), scale=40, size=n_sims), 150, 700)
+                sim_total_yds_a = np.clip(np.random.normal(loc=320 + (sim_scores_a * 3.5), scale=35, size=n_sims), 150, 650)
+                sim_total_yds_b = np.clip(np.random.normal(loc=320 + (sim_scores_b * 3.5), scale=35, size=n_sims), 150, 650)
                 
                 sim_pass_yds_a = sim_total_yds_a * 0.62
                 sim_rush_yds_a = sim_total_yds_a - sim_pass_yds_a
