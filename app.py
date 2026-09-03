@@ -230,9 +230,10 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                # Matchup-specific adjustments: Offense vs. Defense
-                matchup_diff_a = p_a["offense"] - p_b["defense"] + hfa
-                matchup_diff_b = p_b["offense"] - p_a["defense"] - hfa
+                # Fixed Matchup Logic: SP+ defense ratings use negative numbers for elite defenses.
+                # Adding a negative defense rating correctly suppresses the opponent's expected score.
+                matchup_diff_a = p_a["offense"] + p_b["defense"] + hfa
+                matchup_diff_b = p_b["offense"] + p_a["defense"] - hfa
 
                 score_a_mean = league_avg_scoring + (matchup_diff_a * 0.5)
                 score_b_mean = league_avg_scoring + (matchup_diff_b * 0.5)
