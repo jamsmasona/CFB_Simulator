@@ -230,11 +230,12 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                net_diff_a = (p_a["net"] - p_b["net"]) + hfa
-                net_diff_b = -net_diff_a
+                # Matchup-specific adjustments: Offense vs. Defense
+                matchup_diff_a = p_a["offense"] - p_b["defense"] + hfa
+                matchup_diff_b = p_b["offense"] - p_a["defense"] - hfa
 
-                score_a_mean = league_avg_scoring + (net_diff_a * 0.5)
-                score_b_mean = league_avg_scoring + (net_diff_b * 0.5)
+                score_a_mean = league_avg_scoring + (matchup_diff_a * 0.5)
+                score_b_mean = league_avg_scoring + (matchup_diff_b * 0.5)
 
                 sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=8.5, size=n_sims), 0, 75)
                 sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=8.5, size=n_sims), 0, 75)
