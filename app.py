@@ -111,23 +111,15 @@ CFB_TEAMS = sorted([
 API_KEY = st.secrets.get("CFBD_API_KEY", "")
 
 
-# Cached API Fetch Function for Offense and Defense SP+ Ratings (With Debug Lines Added)
+# Cached API Fetch Function for Offense and Defense SP+ Ratings
 @st.cache_data(ttl=86400)
 def fetch_all_sp_ratings():
     url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "accept": "application/json"
-    } if API_KEY else {"accept": "application/json"}
+    headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
     
     profiles = {}
     try:
         res = requests.get(url, headers=headers)
-        
-        # --- DEBUG LINE ---
-        # This will show up on your app interface so you can verify the connection status
-        st.sidebar.write(f"API Status Code: {res.status_code}")
-        
         if res.status_code == 200:
             data = res.json()
             for item in data:
@@ -238,17 +230,14 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                off_weight = 0.45
-                def_weight = 0.45
+                net_diff_a = (p_a["net"] - p_b["net"]) + hfa
+                net_diff_b = -net_diff_a
 
-                score_a_mean = league_avg_scoring + (p_a["offense"] * off_weight) - (p_b["defense"] * def_weight) + (hfa * 0.6)
-                score_b_mean = league_avg_scoring + (p_b["offense"] * off_weight) - (p_a["defense"] * def_weight) - (hfa * 0.6)
+                score_a_mean = league_avg_scoring + (net_diff_a * 0.5)
+                score_b_mean = league_avg_scoring + (net_diff_b * 0.5)
 
-                score_a_mean = max(7.0, score_a_mean)
-                score_b_mean = max(7.0, score_b_mean)
-
-                sim_scores_a = np.clip(np.random.normal(loc=score_a_mean, scale=7.5, size=n_sims), 0, 75)
-                sim_scores_b = np.clip(np.random.normal(loc=score_b_mean, scale=7.5, size=n_sims), 0, 75)
+                sim_scores_a = np.clip(np.random.normal(loc=max(3, score_a_mean), scale=8.5, size=n_sims), 0, 75)
+                sim_scores_b = np.clip(np.random.normal(loc=max(3, score_b_mean), scale=8.5, size=n_sims), 0, 75)
 
                 mean_score_a = np.mean(sim_scores_a)
                 mean_score_b = np.mean(sim_scores_b)
@@ -361,4 +350,4 @@ else:
         history_df = pd.DataFrame(st.session_state.history)
         st.dataframe(history_df, use_container_width=True, hide_index=True)
     else:
-        st.info("Run a simulation above to populate recent history logs.")
+        st.info("Run a simulation above to populate rece
