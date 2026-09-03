@@ -111,15 +111,23 @@ CFB_TEAMS = sorted([
 API_KEY = st.secrets.get("CFBD_API_KEY", "")
 
 
-# Cached API Fetch Function for Offense and Defense SP+ Ratings
+# Cached API Fetch Function for Offense and Defense SP+ Ratings (With Debug Lines Added)
 @st.cache_data(ttl=86400)
 def fetch_all_sp_ratings():
     url = "https://api.collegefootballdata.com/ratings/sp?year=2026"
-    headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "accept": "application/json"
+    } if API_KEY else {"accept": "application/json"}
     
     profiles = {}
     try:
         res = requests.get(url, headers=headers)
+        
+        # --- DEBUG LINE ---
+        # This will show up on your app interface so you can verify the connection status
+        st.sidebar.write(f"API Status Code: {res.status_code}")
+        
         if res.status_code == 200:
             data = res.json()
             for item in data:
@@ -230,7 +238,6 @@ else:
 
                 league_avg_scoring = 28.0
                 
-                # Corrected Offense vs Defense calculation
                 off_weight = 0.45
                 def_weight = 0.45
 
