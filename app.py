@@ -350,4 +350,4 @@ else:
         history_df = pd.DataFrame(st.session_state.history)
         st.dataframe(history_df, use_container_width=True, hide_index=True)
     else:
-        st.info("Run a simulation above to populate rece
+        st.info("Run a simulation above to populate recent history logs.")
